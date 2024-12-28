@@ -28,7 +28,7 @@ impl VatRepository {
             if !currect_dir.is_empty(){
                 return Err(anyhow::anyhow!("Current directory is not empty"));
             }else{
-                let repository_config_file = currect_dir.join("Vat.repository.toml");
+                let repository_config_file = currect_dir.join("vat.repository.toml");
                 if repository_config_file.exists(){
                     return Err(anyhow::anyhow!("Repository config file already exists, {}", repository_config_file.display()));
                 }else{
