@@ -22,3 +22,9 @@ clap = {workspace = true, features = ["derive"]}
 colored = {workspace = true}
 color-print = {workspace = true}
 ansi_term = {workspace = true}
+
+## user directory
+dirs-next = {workspace = true}
+
+## git
+git2 = {workspace = true}

@@ -2,6 +2,9 @@ use clap::{Parser, Subcommand};
 use colored::*;
 use vat::init::Vat;
 use std::process::Command;
+use vat::config::VatConfig;
+use vat::repository::VatRepository;
+use git2::Repository as GitRepository;
 
 /// Simple program to demonstrate colored CLI
 #[derive(Parser)]
@@ -18,6 +21,8 @@ enum Commands {
     Read,
     Houdini,
     Publish,
+    Repo,
+    RepoInit,
 }
 
 fn main() {
@@ -60,7 +65,40 @@ fn main() {
 
             },
         Some(Commands::Publish) => {
-            println!("Publish");
+             let current_dir = std::env::current_dir().unwrap();
+
+        // Execute the git command to get the latest tag
+        // let output = Command::new("git")
+        //     .arg("describe")
+        //     .arg("--tags")
+        //     .arg("--abbrev=0") // Get the most recent tag
+        //     .current_dir(&current_dir) // Set the current directory for the command
+        //     .output() // Use output() to capture the command's output
+        //     .expect("Failed to execute git command");
+
+        //     if output.status.success() {
+        //         let stdout = String::from_utf8_lossy(&output.stdout); // Create a longer-lived value
+        //         let latest_tag = stdout.trim(); // Trim whitespace
+        //         println!("Latest Git tag version: {}", latest_tag);
+        //     } else {
+        //         let error_message = String::from_utf8_lossy(&output.stderr);
+        //         eprintln!("Failed to get latest Git tag: {}", error_message);
+        //     }
+
+        let repo = GitRepository::open(&current_dir).unwrap();
+        // let tag = repo.describe().unwrap();
+        let tags = repo.tag_names(None).unwrap();
+        let tags = tags.iter().collect::<Vec<_>>();
+        dbg!(tags);
+
+            
+        },
+        Some(Commands::Repo) => {
+            let config = VatConfig::init().unwrap();
+            println!("Repository path: {:?}", config.get_repository_path());
+        },
+        Some(Commands::RepoInit) => {
+            let repository = VatRepository::init().unwrap();
         },
         None => {
             println!("Vat");

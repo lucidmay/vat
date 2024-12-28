@@ -1,10 +1,9 @@
 use std::path::PathBuf;
 use anyhow::Result;
-use colored::*;
 use crate::package::Package;
 use std::io::Write;
 use color_print::cprintln;
-use std::process::Command;
+use git2::Repository;
 
 pub struct Vat {
     pub package_path: PathBuf,
@@ -37,18 +36,23 @@ impl Vat {
         toml_file.write_all(toml_string.as_bytes())?;
 
            // Initialize a new Git repository
-        let output = Command::new("git")
-            .arg("init")
-            .current_dir(&current_dir) // Set the current directory for the command
-            .output() // Use output() to capture the command's output
-            .expect("Failed to initialize Git repository");
+        // let output = Command::new("git")
+        //     .arg("init")
+        //     .current_dir(&current_dir) // Set the current directory for the command
+        //     .output() // Use output() to capture the command's output
+        //     .expect("Failed to initialize Git repository");
 
-        if output.status.success() {
-            cprintln!("      <green>Initialized Git repository</green>");
-        } else {
-            let error_message = String::from_utf8_lossy(&output.stderr);
-            eprintln!("Failed to initialize Git repository: {}", error_message);
-        }
+        // if output.status.success() {
+        //     cprintln!("      <green>Initialized Git repository</green>");
+        // } else {
+        //     let error_message = String::from_utf8_lossy(&output.stderr);
+        //     eprintln!("Failed to initialize Git repository: {}", error_message);
+        // }
+
+        let repo = match Repository::init(&current_dir) {
+            Ok(repo) => repo,
+            Err(e) => panic!("failed to init: {}", e),
+        };
 
 
         Ok(Self { package_path: current_dir.clone(), package_name: current_dir_name.to_string() })
