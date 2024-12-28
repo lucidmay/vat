@@ -28,3 +28,6 @@ dirs-next = {workspace = true}
 
 ## git
 git2 = {workspace = true}
+
+## fs
+fs_extra = {workspace = true}   

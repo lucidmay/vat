@@ -6,6 +6,8 @@ use vat::repository::VatRepository;
 use vat::package::Package;
 use git2::Repository as GitRepository;
 use std::io::{self, Write}; 
+use std::path::PathBuf;
+use fs_extra::dir::{copy, CopyOptions};
 
 /// Simple program to demonstrate colored CLI
 #[derive(Parser)]
@@ -95,10 +97,60 @@ fn main() {
             let remote = repo.remotes().unwrap();
             let remote = remote.iter().collect::<Vec<_>>();
             if !remote.is_empty() {
-                println!("Remote repository: {:?}", remote.first().unwrap().unwrap());
+                println!("Remote git repository: {:?}", remote.first().unwrap().unwrap());
             } else {
-                println!("No remote repository set");
+                println!("No remote git repository set");
             }
+
+            let package = Package::read(&current_dir).unwrap();
+
+            let status = Command::new("git")
+                .arg("checkout")
+                .arg(package.get_current_version())
+                .current_dir(&current_dir)
+                .status()
+                .expect("Failed to execute git checkout");
+
+            if !status.success() {
+                eprintln!("Failed to checkout version");
+                return;
+            }
+
+            let dest_dir = "Z:\\noduro_roots\\vat_repo\\package";
+            let dest_dir = PathBuf::from(dest_dir);
+            let dest_dir = dest_dir.join(&package.get_name());
+            let dest_dir = dest_dir.join(&package.get_current_version());
+            if !dest_dir.exists() {
+                std::fs::create_dir_all(&dest_dir).unwrap();
+            }
+
+            // Print paths for debugging
+            println!("Current directory: {:?}", current_dir);
+            println!("Destination directory: {:?}", dest_dir);
+
+            let mut options = CopyOptions::new();
+            options.overwrite = true;
+            options.copy_inside = true;  
+
+            match copy(&current_dir, dest_dir, &options) {
+                Ok(_) => println!("Files copied successfully!"),
+                Err(e) => {eprintln!("Error copying files: {}", e)},
+            }
+
+            // Checkout the master branch in the destination directory
+            let status = Command::new("git")
+                .arg("checkout")
+                .arg("master")
+                .current_dir(current_dir) // Ensure you're checking out in the correct directory
+                .status()
+                .expect("Failed to execute git checkout");
+
+            if !status.success() {
+                eprintln!("Failed to checkout master. Exit code: {}", status.code().unwrap_or(-1));
+                return;
+            }
+
+            println!("Directory copied successfully");
             
         },
         Some(Commands::Repo) => {

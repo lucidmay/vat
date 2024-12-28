@@ -35,6 +35,10 @@ impl Package {
         }
     }
 
+    pub fn get_name(&self) -> String {
+        self.package_info.name.clone()
+    }
+
 
     pub fn init(current_dir: PathBuf) -> Result<Self, anyhow::Error> {
               cprintln!("      <green>Creating</green> vat default package");
