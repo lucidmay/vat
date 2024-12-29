@@ -6,8 +6,6 @@ use vat::repository::VatRepository;
 use vat::package::Package;
 use git2::Repository as GitRepository;
 use std::io::{self, Write}; 
-use std::path::PathBuf;
-use fs_extra::dir::{copy, CopyOptions};
 use vat::git::Git;
 
 /// Simple program to demonstrate colored CLI
