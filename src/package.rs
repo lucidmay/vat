@@ -7,7 +7,7 @@ use git2::Repository;
 
 const VAT_TOML: &str = "vat.toml";
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PackageVersions{
     pub publishes: HashMap<String, Package>,
     pub default: String,
@@ -31,6 +31,11 @@ impl PackageVersions {
         };
         package_versions.append_version(package);
         package_versions
+    }
+
+    pub fn get_latest_version(&self) -> Option<&Package> {
+        let latest_version = self.publishes.values().max_by(|a, b| a.get_version().cmp(&b.get_version()));
+        latest_version
     }
 
 }
@@ -83,10 +88,10 @@ impl Package {
         // get the current working directory
         let current_dir_name = current_dir.file_name().unwrap().to_str().unwrap();
 
-        match current_dir.is_empty() {
-            false => return Err(anyhow::anyhow!("The current directory is not empty")),
-            true => (),
-        }
+        // match current_dir.is_empty() {
+        //     false => return Err(anyhow::anyhow!("The current directory is not empty")),
+        //     true => (),
+        // }
 
         let vat_yaml_path = current_dir.join(VAT_TOML);
         if vat_yaml_path.exists() {
@@ -99,10 +104,13 @@ impl Package {
         let mut toml_file = std::fs::File::create(vat_yaml_path)?;
         toml_file.write_all(toml_string.as_bytes())?;
 
-        let repo = match Repository::init(&current_dir) {
-            Ok(repo) => repo,
-            Err(e) => panic!("failed to init: {}", e),
-        };
+        let git_repo = current_dir.join(".git");
+        if !git_repo.exists() {
+            let repo = match Repository::init(&current_dir) {
+                Ok(repo) => repo,
+                Err(e) => panic!("failed to init: {}", e),
+            };
+        }
 
         Ok(Self::new(current_dir_name.to_string()))
 
@@ -160,6 +168,20 @@ impl Package {
         } 
     }
 
+    pub fn load_all_environments(&self) -> Result<(), anyhow::Error> {
+        if self.environment.is_some() {
+            let env = self.environment.as_ref().unwrap();
+            for (key, value) in env {
+                self.load_environments(key)?;
+
+                // print environtm
+                // let env_value = std::env::var(key).unwrap_or_default();
+                // println!("{}: {}", key, env_value);
+            }
+        }
+        Ok(())
+    }
+
 
     pub fn load_environments(&self, env_name: &str) -> Result<(), anyhow::Error> {
         if self.environment.is_some() {
@@ -179,13 +201,25 @@ impl Package {
                             std::env::set_var(env.variable.clone(), format!("{};{}", env.value, current_value));
                         }
                         EnvAction::Append => {
-                            let current_value = std::env::var(env.variable.clone()).unwrap_or_default();
-                            std::env::set_var(env.variable.clone(), format!("{};{}", current_value, env.value));
+                            // let current_value = std::env::var(env.variable.clone()).unwrap_or_default();
+                            // std::env::set_var(env.variable.clone(), format!("{};{}", current_value, env.value));
+
+                            let current_value = std::env::var(env.variable.clone());
+                            match current_value {
+                                Ok(value) => {
+                                    std::env::set_var(env.variable.clone(), format!("{};{}", env.value, value));
+                                }
+                                Err(_) => {
+                                    std::env::set_var(env.variable.clone(), env.value.clone());
+                                }
+                            }
                         }
                         EnvAction::Define => {
                             std::env::set_var(env.variable.clone(), env.value.clone());
                         }
                     }
+
+                    println!("{}: {}", env.variable, std::env::var(env.variable.clone()).unwrap_or_default());
                 }
                 Ok(())
             } else {
@@ -194,6 +228,34 @@ impl Package {
         } else {
             Err(anyhow::anyhow!("No environments found in the package"))
         }
+    }
+
+    pub fn command_load_env(&self, command_name: &str) -> Result<(), anyhow::Error> {
+        if self.command.is_some() {
+            let commands = self.command.as_ref().unwrap();
+            if commands.contains_key(command_name) {
+                let command = commands.get(command_name);
+                if command.is_some() {
+                    let command = command.unwrap();
+                    if command.env.is_some() {
+                        for env in command.env.as_ref().unwrap() {
+                            println!("Loading environment variable: {}", &env);
+                            self.load_environments(env)?;
+                        }
+                    }else{
+                        // load all environemts
+                        if self.environment.is_some() {
+                            let env = self.environment.as_ref().unwrap();
+                            for (key, value) in env {
+                                println!("Loading environment: {}", &key);
+                                self.load_environments(key)?;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn run_command(&self, command_name: &str) -> Result<(), anyhow::Error> {
@@ -236,6 +298,25 @@ impl Package {
         } else {
             Err(anyhow::anyhow!("No commands found in the package"))
         }
+    }
+
+    pub fn run_only_command(&self, command_name: &str) -> Result<(), anyhow::Error> {
+        
+        if self.command.is_some() {
+            let commands = self.command.as_ref().unwrap();
+            if commands.contains_key(command_name) {
+                let command = commands.get(command_name);
+                if command.is_some() {
+                    let script = command.unwrap().script.clone();
+                    println!("Running script: {}", &script);
+                    let status = std::process::Command::new(&script).status()?;
+                    if !status.success() {
+                        return Err(anyhow::anyhow!("Command failed: {}", script));
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
 }

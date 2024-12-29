@@ -136,7 +136,7 @@ fn main() {
             }
 
             let mut repository = VatRepository::read_repository().unwrap();
-            let result = repository.add_package(package.clone());
+            let result = repository.add_package(package.clone()); // does not save
             
             match result {
                 Ok(_) => {
@@ -159,7 +159,7 @@ fn main() {
             // Checkout the master branch in the destination directory
             let status = Command::new("git")
                 .arg("checkout")
-                .arg("master")
+                .arg("main")
                 .current_dir(current_dir) // Ensure you're checking out in the correct directory
                 .status()
                 .expect("Failed to execute git checkout");
@@ -169,7 +169,16 @@ fn main() {
                 return;
             }
 
-            println!("Directory copied successfully");
+            let result = repository.save();
+            match result {
+                Ok(_) => {
+                    println!("Repository saved successfully");
+                }
+                Err(e) => {
+                    eprintln!("Error saving repository: {}", e);
+                }
+            }
+
             
         },
         Some(Commands::Repo) => {

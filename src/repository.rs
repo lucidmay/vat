@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{PathBuf, Path};
 use std::fs;
 use crate::config::VatConfig;
 use serde::{Serialize, Deserialize};
@@ -6,10 +6,14 @@ use color_print::cprintln;
 use std::collections::HashMap;
 use crate::package::{Package, PackageVersions};
 use std::io::Write;
-use fs_extra::dir::{copy, CopyOptions};
+use fs_extra::{copy_items, dir::{copy, CopyOptions}};
 use crate::package::RepositoryType;
+use zip::read::ZipArchive;
+use std::fs::File;
+use std::io;
 
-#[derive(Serialize, Deserialize, Debug)]
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VatRepository {
     pub packages: HashMap<String, PackageVersions>
 }
@@ -59,6 +63,19 @@ impl VatRepository {
         Ok(VatRepository::default())
     }
 
+    pub fn pretty_list(&self) {
+        if !self.packages.is_empty() {
+            for (package_name, package_versions) in &self.packages {
+                println!("{}", package_name);
+                for (version, package) in package_versions.publishes.iter() {
+                    println!("  {}", version);
+                }
+            }
+        }else{
+            println!("{}", format!("No packages found in the repository"));
+        }
+    }
+
     pub fn read_repository() -> Result<Self, anyhow::Error> {
         let vat_config = VatConfig::init()?;
         let repository_path = vat_config.get_repository_path();
@@ -92,6 +109,30 @@ impl VatRepository {
 
     }
 
+    pub fn get_package(&self, package_name: &str) -> Option<&PackageVersions> {
+        if self.packages.contains_key(package_name) {
+            self.packages.get(package_name)
+        }else{
+            None
+        }
+    }
+
+    pub fn remove_package(&mut self, package_name: &str) -> Result<(), anyhow::Error> {
+        if self.packages.contains_key(package_name) {
+            self.packages.remove(package_name);
+            self.save()?;
+            Ok(())
+        }else{
+            Err(anyhow::anyhow!("Package not found: {}", package_name))
+        }
+    }
+
+    pub fn get_latest_package_version(&self, package_name: &str) -> Option<&Package> {
+        let package_versions = self.packages.get(package_name)?;
+        let latest_version = package_versions.get_latest_version();
+        latest_version
+    }
+
     pub fn get_repository_path() -> Option<PathBuf> {
         let vat_config = VatConfig::init().unwrap();
         let repository_path = vat_config.get_repository_path();
@@ -99,26 +140,59 @@ impl VatRepository {
     }   
 
     pub fn get_package_version_path(package: &Package) -> Option<PathBuf> {
-        let version_path = Self::get_repository_path().unwrap().join("packages").join(&package.get_name()).join(&package.get_version());
+        let version_path = Self::get_repository_path().unwrap().join("packages").join(&package.get_name());
         Some(version_path)
     }
 
     pub fn package_data_update(package: &Package) -> Result<(), anyhow::Error> {
         match &package.package_info.repository {
             RepositoryType::Local(path) => {
-                println!("Local repository: {:?}", path);
-                let current_dir = path.clone();
-                let version_path = Self::get_package_version_path(package).unwrap();
+                let current_dir = std::env::current_dir()?;
+
                 let mut options = CopyOptions::new();
                 options.overwrite = true;
                 options.copy_inside = true;  
-                copy(&current_dir, &version_path, &options)?;
 
-                // remove .git folder #TODO: This is a temporary solution, need to find a better way to handle this
-                let git_folder = version_path.join(".git");
-                if git_folder.exists() {
-                    fs::remove_dir_all(git_folder)?;
+                let currect_version = package.get_version();
+                let zip_file_name = format!("{}.zip", currect_version);
+                let source_zip_file = current_dir.join(&zip_file_name);
+
+
+                println!("Source: {:?}", &zip_file_name);
+                println!("Target: {:?}", &package.get_version());
+
+
+                //"git archive --format=zip -o archive.zip 0.0.3"
+
+                let command = std::process::Command::new("git")
+                    .arg("archive")
+                    .arg("--format=zip")
+                    .arg("-o")
+                    .arg(&zip_file_name)
+                    .arg(package.get_version())
+                    .current_dir(&current_dir)
+                    .status()
+                    .expect("Failed to execute git archive");
+
+
+                let mut source = Vec::new();
+                source.push(&source_zip_file);
+
+                println!("Source: {:?}", &source);
+
+                let target_path = Self::get_package_version_path(package).unwrap().join(package.get_version());
+                println!("Target: {:?}", &target_path);
+                if !target_path.exists(){
+                    fs::create_dir_all(&target_path)?;
                 }
+                // copy_items(&source, &target_path, &options)?;
+
+
+                unzip_file(&source_zip_file.to_str().unwrap(), &target_path.to_str().unwrap())?;
+                fs::remove_file(source_zip_file)?;
+
+                println!("Zip successfully extracted");
+
             }
             RepositoryType::Remote(url) => {
                 println!("Remote repository: {}", url);
@@ -144,11 +218,11 @@ impl VatRepository {
 
 
 
-trait Path {
+trait PathUtil {
     fn is_empty(&self) -> bool;
 }
 
-impl Path for PathBuf {
+impl PathUtil for PathBuf {
     fn is_empty(&self) -> bool {
         let files = std::fs::read_dir(self).unwrap();
         if files.count() == 0 {
@@ -156,4 +230,17 @@ impl Path for PathBuf {
         }
         false
     }
+}
+
+
+fn unzip_file(zip_path: &str, output_dir: &str) -> io::Result<()> {
+    // Open the ZIP file
+    let file = File::open(zip_path)?;
+    let mut archive = ZipArchive::new(file)?;
+
+    // Extract all files in the ZIP archive
+    archive.extract(Path::new(output_dir))?;
+
+    println!("Successfully extracted to {}", output_dir);
+    Ok(())
 }
