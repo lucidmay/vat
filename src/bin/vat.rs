@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand, Args};
 use colored::*;
 use std::process::Command;
 use vat::config::VatConfig;
-use vat::repository::VatRepository;
+use vat::repository::{VatRepository, VatRepository2};
 use vat::package::Package;
 use git2::Repository as GitRepository;
 use std::io::{self, Write}; 
@@ -62,39 +62,7 @@ fn main() {
             }
         },
         Some(Commands::Houdini) => {
-            // append path env variable
-            // let houdini_path = "C:\\Program Files\\Side Effects Software\\Houdini 20.5.314\\bin";
-            // let current_path = std::env::var("PATH").unwrap_or_default();
-            // let new_path = format!("{};{}", current_path, houdini_path);
-            // std::env::set_var("PATH", new_path);
-
-            //  let output = Command::new("houdini")
-            //     .status()
-            //     .expect("Failed to execute Houdini command");
-
-            // if output.success() {
-            //     println!("Houdini launched successfully.");
-            // } else {
-            //     eprintln!("Failed to launch Houdini.");
-            // }
-
-            // },
-            // let current_dir = std::env::current_dir().unwrap();
-            // let package = Package::read(&current_dir).unwrap();
-            // // package.load_environments("houdinibin").unwrap();
-            // package.run_command("houdini20").unwrap();
             println!("houdini");
-
-            // let output = Command::new("cmd")
-            //     .arg("/C")
-            //     .arg("where houdini")
-            //     .output()
-            //     .expect("Failed to check Houdini command availability");
-
-            // println!("Houdini command output: {:?}", String::from_utf8_lossy(&output.stdout));
-
-            // std::process::Command::new("houdini").status().unwrap();
-
         }
 
         Some(Commands::Publish) => {
@@ -186,7 +154,7 @@ fn main() {
             println!("Repository path: {:?}", config.get_repository_path());
         },
         Some(Commands::RepoInit) => {
-            let repository = VatRepository::init();
+            let repository = VatRepository2::init();
             match repository {
                 Ok(_) => {
                     println!("Repository initialized");

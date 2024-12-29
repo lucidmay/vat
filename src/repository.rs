@@ -12,6 +12,102 @@ use zip::read::ZipArchive;
 use std::fs::File;
 use std::io;
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct VatRepository2{
+    pub packages: HashMap<String, PublishedVersions>,
+    pub path : PathBuf,
+}
+
+impl Default for VatRepository2{
+    fn default() -> Self{
+        VatRepository2{packages: HashMap::new(), path: PathBuf::new()}
+    }
+}
+
+
+impl VatRepository2{
+    pub fn init() -> Result<Self, anyhow::Error>{
+        let current_dir = std::env::current_dir()?;
+
+        let vat_repo = VatRepository2{
+            packages: HashMap::new(),
+            path: current_dir.clone(),
+        };
+
+        let mut config = VatConfig::init()?;
+        let repository_path = config.get_repository_path();
+        let repository_config_file = current_dir.join("vat.repository.toml");
+
+        if repository_path.is_none(){
+            if !current_dir.is_empty(){
+                return Err(anyhow::anyhow!("Current directory is not empty to initialize the repository"));
+            }else{
+                let repository_config_str = toml::to_string(&vat_repo)?;
+                fs::write(&repository_config_file, &repository_config_str)?;
+                config.set_repository_path(current_dir.clone());
+                config.save()?;
+                cprintln!("      <green>Repository initialized</green>");
+            }
+        }else{
+            let repository_path = config.get_repository_path().unwrap();
+            if !repository_path.exists(){
+                let repository_config_str = toml::to_string(&vat_repo)?;
+                fs::write(&repository_config_file, &repository_config_str)?;
+                config.set_repository_path(repository_path.clone());
+                config.save()?;
+                cprintln!("      <green>Repository initialized</green>");
+            }else{
+                return Err(anyhow::anyhow!("Repository already exists, {}", repository_path.display()));
+            }   
+        }
+        Ok(VatRepository2::default())
+    }
+
+    pub fn add_package(&mut self, package: Package) -> Result<Package, anyhow::Error>{
+        if self.packages.contains_key(&package.get_name()){
+            if &package.get_version() == self.packages.get(&package.get_name()).unwrap().versions.last().unwrap(){
+                return Err(anyhow::anyhow!("Package version has already been published, {}", package.get_version()));
+            }else{
+                self.packages.get_mut(&package.get_name()).unwrap().versions.push(package.get_version());
+                Ok(package)
+            }
+        }else{
+            self.packages.insert(package.get_name(), PublishedVersions::from(package.clone()));
+            Ok(package)
+        }   
+    }
+
+    pub fn get_package_repository(&self, package_name: &str) -> Result<VatRepository, anyhow::Error>{
+        if self.packages.contains_key(package_name){
+            let versions = self.packages.get(package_name).unwrap();
+            let repo_path = self.path.join("packages").join(package_name);
+
+            let mut package_repository = VatRepository::new();
+            for version in versions.versions.clone(){
+                let version_path = repo_path.join(version);
+                if version_path.exists(){
+                    let package = Package::read(&version_path)?;
+                    package_repository.add_package(package)?;
+                }
+            }
+            Ok(package_repository)
+        }else{
+            Err(anyhow::anyhow!("Package not found: {}", package_name))
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct PublishedVersions{
+    pub versions: Vec<String>
+}
+
+impl PublishedVersions{
+    pub fn from(package: Package) -> Self{
+        PublishedVersions{versions: vec![package.get_version()]}
+    }
+}
+
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VatRepository {
@@ -25,6 +121,10 @@ impl Default for VatRepository {
 }
 
 impl VatRepository {
+    pub fn new() -> Self{
+        VatRepository::default()
+    }
+
     pub fn init() -> Result<Self, anyhow::Error> {
         let mut config = VatConfig::init()?;
         let repository_path = config.get_repository_path();
