@@ -40,9 +40,8 @@ pub struct Package{
     #[serde(rename="package")]
     pub package_info: PackageInfo,
     pub dependencies: Dependencies,
-    #[serde(rename="commands")]
-    pub commands: Vec<BuildCommand>,
-    pub environments: Vec<Environtment>,
+    pub environment: Option<HashMap<String, Environtment>>,
+    pub command: Option<HashMap<String, Command>>,
 }
 
 impl Package {  
@@ -51,6 +50,11 @@ impl Package {
     ) -> Self 
     {
         let current_dir = std::env::current_dir().unwrap();
+
+        let env = Environtment::new();
+
+        let command = Command { script: "houdini".to_string(), env: Some(vec!["PATH".to_string(), "PYTHONPATH".to_string()]) };
+
         Self { 
             package_info: PackageInfo { name,
                 version: "0.0.0".to_string(),
@@ -59,8 +63,8 @@ impl Package {
                 repository: RepositoryType::Local(current_dir),
                 },
             dependencies: Dependencies::default(),
-            commands: vec![],
-            environments: vec![],
+            command: Some(HashMap::from([("houdini20".to_string(), command)])),
+            environment: Some(HashMap::from([("python".to_string(), env)])),
         }
     }
 
@@ -157,6 +161,83 @@ impl Package {
     }
 
 
+    pub fn load_environments(&self, env_name: &str) -> Result<(), anyhow::Error> {
+        if self.environment.is_some() {
+            let env = self.environment.as_ref().unwrap();
+            if env.contains_key(env_name) {
+                let env = env.get(env_name).unwrap();
+                if env.action.is_some() {
+                    if env.variable == "PATH"{
+                        let path = PathBuf::from(env.value.clone());
+                        if !path.exists() {
+                            return Err(anyhow::anyhow!("The path is not valid: {}", env.value));
+                        }
+                    }
+                    match env.action.as_ref().unwrap() {
+                        EnvAction::Prepend => {
+                            let current_value = std::env::var(env.variable.clone()).unwrap_or_default();
+                            std::env::set_var(env.variable.clone(), format!("{};{}", env.value, current_value));
+                        }
+                        EnvAction::Append => {
+                            let current_value = std::env::var(env.variable.clone()).unwrap_or_default();
+                            std::env::set_var(env.variable.clone(), format!("{};{}", current_value, env.value));
+                        }
+                        EnvAction::Define => {
+                            std::env::set_var(env.variable.clone(), env.value.clone());
+                        }
+                    }
+                }
+                Ok(())
+            } else {
+                Err(anyhow::anyhow!("Environment not found: {}", env_name))
+            }
+        } else {
+            Err(anyhow::anyhow!("No environments found in the package"))
+        }
+    }
+
+    pub fn run_command(&self, command_name: &str) -> Result<(), anyhow::Error> {
+        if self.command.is_some() {
+            let commands = self.command.as_ref().unwrap();
+            if commands.contains_key(command_name) {
+                let command = commands.get(command_name);
+                if command.is_some() {
+                    println!("Command found: {}", &command_name);
+                    let command = command.unwrap();
+                    // check if env is defined
+                    if command.env.is_some() {
+                        for env in command.env.as_ref().unwrap() {
+                            println!("Loading environment variable: {}", &env);
+                            self.load_environments(env)?;
+                        }
+                    }else{
+                        // load all environemts
+                        if self.environment.is_some() {
+                            let env = self.environment.as_ref().unwrap();
+                            for (key, value) in env {
+                                println!("Loading environment: {}", &key);
+                                self.load_environments(key)?;
+                            }
+                        }
+                    }
+                    let script = command.script.clone();
+                    println!("Running script: {}", &script);
+                    let status = std::process::Command::new(&script).status()?;
+                    if !status.success() {
+                        return Err(anyhow::anyhow!("Command failed: {}", script));
+                    }
+                    Ok(())
+                } else {
+                    Err(anyhow::anyhow!("Command not found: {}", command_name))
+                }
+            } else {
+                Err(anyhow::anyhow!("Command not found: {}", command_name))
+            }
+        } else {
+            Err(anyhow::anyhow!("No commands found in the package"))
+        }
+    }
+
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -175,6 +256,12 @@ pub enum RepositoryType {
 }
 
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Command {
+    pub script: String,
+    pub env: Option<Vec<String>>
+}
+
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BuildCommand{
@@ -192,9 +279,15 @@ impl BuildCommand {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Environtment {
-    pub name: String,
+    pub variable: String,
     pub value: String,
-    pub action: EnvAction,
+    pub action: Option<EnvAction>,
+}
+
+impl Environtment {
+    pub fn new() -> Self {
+        Self { variable: "PATH".to_string(), value: "{root}/bin".to_string(), action: Some(EnvAction::Define) }
+    }
 }
 
 

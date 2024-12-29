@@ -35,6 +35,10 @@ enum Commands {
         #[arg(short = 'p', long)]
         patch:bool,
     },
+    Test{
+        #[arg(required = false)]
+        subcommand:Option<String>,
+    },
 }
 
 fn main() {
@@ -61,22 +65,39 @@ fn main() {
         },
         Some(Commands::Houdini) => {
             // append path env variable
-            let houdini_path = "C:\\Program Files\\Side Effects Software\\Houdini 20.5.314\\bin";
-            let current_path = std::env::var("PATH").unwrap_or_default();
-            let new_path = format!("{};{}", current_path, houdini_path);
-            std::env::set_var("PATH", new_path);
+            // let houdini_path = "C:\\Program Files\\Side Effects Software\\Houdini 20.5.314\\bin";
+            // let current_path = std::env::var("PATH").unwrap_or_default();
+            // let new_path = format!("{};{}", current_path, houdini_path);
+            // std::env::set_var("PATH", new_path);
 
-             let output = Command::new("houdini")
-                .status()
-                .expect("Failed to execute Houdini command");
+            //  let output = Command::new("houdini")
+            //     .status()
+            //     .expect("Failed to execute Houdini command");
 
-            if output.success() {
-                println!("Houdini launched successfully.");
-            } else {
-                eprintln!("Failed to launch Houdini.");
-            }
+            // if output.success() {
+            //     println!("Houdini launched successfully.");
+            // } else {
+            //     eprintln!("Failed to launch Houdini.");
+            // }
 
-            },
+            // },
+            // let current_dir = std::env::current_dir().unwrap();
+            // let package = Package::read(&current_dir).unwrap();
+            // // package.load_environments("houdinibin").unwrap();
+            // package.run_command("houdini20").unwrap();
+            println!("houdini");
+
+            // let output = Command::new("cmd")
+            //     .arg("/C")
+            //     .arg("where houdini")
+            //     .output()
+            //     .expect("Failed to check Houdini command availability");
+
+            // println!("Houdini command output: {:?}", String::from_utf8_lossy(&output.stdout));
+
+            // std::process::Command::new("houdini").status().unwrap();
+
+        }
 
         Some(Commands::Publish) => {
             let current_dir = std::env::current_dir().unwrap();
@@ -258,14 +279,20 @@ fn main() {
                 repo.tag(&package.get_current_version(), &target_commit, &repo.signature().unwrap(), "New version", true).unwrap();
                 println!("Tag created successfully");
 
-
-
-
-                
-
             } else {
                 println!("Vat package not found");
             }
+        },
+        Some(Commands::Test { subcommand }) => {
+            let current_dir = std::env::current_dir().unwrap();
+            let package = Package::read(&current_dir).unwrap();
+            if subcommand.is_some() {
+                package.run_command(&subcommand.unwrap()).unwrap();
+            } else {
+                println!("No subcommand provided");
+            }
+
+            // std::process::Command::new("explorer").status().unwrap();
         },
         None => {
             println!("Vat");
