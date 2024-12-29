@@ -8,6 +8,7 @@ use git2::Repository as GitRepository;
 use std::io::{self, Write}; 
 use std::path::PathBuf;
 use fs_extra::dir::{copy, CopyOptions};
+use vat::git::Git;
 
 /// Simple program to demonstrate colored CLI
 #[derive(Parser)]
@@ -80,11 +81,10 @@ fn main() {
         Some(Commands::Publish) => {
             let current_dir = std::env::current_dir().unwrap();
             let repo = GitRepository::open(&current_dir).unwrap();
-            let tags = repo.tag_names(None).unwrap();
-            let tags = tags.iter().collect::<Vec<_>>();
+            let tags = repo.get_tags().unwrap();
             if !tags.is_empty() {
                 if let Some(latest_tag) = tags.last() {
-                    println!("Latest tag: {:?}", latest_tag.unwrap());
+                    println!("Latest tag: {:?}", latest_tag);
                 } else {
                     println!("No tags found");
                 }
@@ -94,16 +94,16 @@ fn main() {
 
 
             // check if remote repository is set
-            let remote = repo.remotes().unwrap();
-            let remote = remote.iter().collect::<Vec<_>>();
+            let remote = repo.get_remotes().unwrap();
             if !remote.is_empty() {
-                println!("Remote git repository: {:?}", remote.first().unwrap().unwrap());
+                println!("Remote git repository: {:?}", remote.first().unwrap());
             } else {
                 println!("No remote git repository set");
             }
 
             let package = Package::read(&current_dir).unwrap();
 
+            // raw git checkout
             let status = Command::new("git")
                 .arg("checkout")
                 .arg(package.get_current_version())
@@ -116,25 +116,25 @@ fn main() {
                 return;
             }
 
-            let dest_dir = "Z:\\noduro_roots\\vat_repo\\package";
-            let dest_dir = PathBuf::from(dest_dir);
-            let dest_dir = dest_dir.join(&package.get_name());
-            let dest_dir = dest_dir.join(&package.get_current_version());
-            if !dest_dir.exists() {
-                std::fs::create_dir_all(&dest_dir).unwrap();
-            }
+            let mut repository = VatRepository::read_repository().unwrap();
+            let result = repository.add_package(package.clone());
+            
+            match result {
+                Ok(_) => {
+                    // repository
+                    dbg!(&repository);
+                    let result =  VatRepository::package_data_update(&package);
+                    match result {
+                        Ok(_) => {
+                            println!("Package data updated successfully");
+                        }
+                        Err(e) => {
+                            eprintln!("Error updating package data: {}", e);
+                        }
+                    }
 
-            // Print paths for debugging
-            println!("Current directory: {:?}", current_dir);
-            println!("Destination directory: {:?}", dest_dir);
-
-            let mut options = CopyOptions::new();
-            options.overwrite = true;
-            options.copy_inside = true;  
-
-            match copy(&current_dir, dest_dir, &options) {
-                Ok(_) => println!("Files copied successfully!"),
-                Err(e) => {eprintln!("Error copying files: {}", e)},
+                },
+                Err(e) => eprintln!("Error adding package: {}", e),
             }
 
             // Checkout the master branch in the destination directory
@@ -158,7 +158,15 @@ fn main() {
             println!("Repository path: {:?}", config.get_repository_path());
         },
         Some(Commands::RepoInit) => {
-            let repository = VatRepository::init().unwrap();
+            let repository = VatRepository::init();
+            match repository {
+                Ok(_) => {
+                    println!("Repository initialized");
+                }
+                Err(e) => {
+                    eprintln!("Error initializing repository: {}", e);
+                }
+            }
         },
         Some(Commands::Up { major, minor, patch }) => {
             let current_dir = std::env::current_dir().unwrap();
@@ -166,7 +174,6 @@ fn main() {
                 let mut package = Package::read(&current_dir).unwrap();
                 println!("Make sure you have committed before running this command");
                 println!("Current version: {:?}", package.get_current_version());
-
 
 
                 if major {

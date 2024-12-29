@@ -5,7 +5,7 @@ use std::fs;
 
 
 
-const CONFIG_FILE_NAME: &str = "Vat.config";
+const CONFIG_FILE_NAME: &str = "vat.config";
 
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -42,7 +42,6 @@ impl VatConfig {
                 let config_path = app_dir.join(CONFIG_FILE_NAME);
                 if config_path.exists(){
                     let config = serde_json::from_str(&fs::read_to_string(config_path).unwrap()).unwrap();
-                    println!("Config read from file: {:?}", &config);
                     return Ok(config);
                 }else{
                     let config = VatConfig::default();

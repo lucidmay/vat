@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::io::Write;
 use color_print::cprintln;
@@ -7,10 +8,38 @@ use git2::Repository;
 const VAT_TOML: &str = "vat.toml";
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct PackageVersions{
+    pub publishes: HashMap<String, Package>,
+    pub default: String,
+}
+
+impl Default for PackageVersions {
+    fn default() -> Self {
+        PackageVersions { publishes: HashMap::new(), default: "".to_string() }
+    }
+}
+
+impl PackageVersions {
+    pub fn append_version(&mut self, package: Package) {
+        self.publishes.insert(package.get_version(), package);
+    }
+
+    pub fn from(package: Package) -> Self {
+        let mut package_versions = PackageVersions{
+            publishes: HashMap::new(),
+            default: "".to_string(),
+        };
+        package_versions.append_version(package);
+        package_versions
+    }
+
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Package{
     #[serde(rename="package")]
     pub package_info: PackageInfo,
-    pub dependencies: Vec<String>,
+    pub dependencies: Dependencies,
     #[serde(rename="commands")]
     pub commands: Vec<BuildCommand>,
     pub environments: Vec<Environtment>,
@@ -29,7 +58,7 @@ impl Package {
                 authors: vec![] ,
                 repository: RepositoryType::Local(current_dir),
                 },
-            dependencies: vec![],
+            dependencies: Dependencies::default(),
             commands: vec![],
             environments: vec![],
         }
@@ -37,6 +66,10 @@ impl Package {
 
     pub fn get_name(&self) -> String {
         self.package_info.name.clone()
+    }
+
+    pub fn get_version(&self) -> String {
+        self.package_info.version.clone()
     }
 
 
@@ -71,11 +104,13 @@ impl Package {
 
     }
 
+
     pub fn read(package_path: &PathBuf) -> Result<Package, anyhow::Error> {
         let toml_string = std::fs::read_to_string(package_path.join(VAT_TOML))?;
         let package: Package = toml::from_str(&toml_string)?;
         Ok(package)
     }
+
 
     pub fn save(&self, package_path: &PathBuf) -> Result<(), anyhow::Error> {
         let toml_string = toml::to_string(self)?;
@@ -84,19 +119,23 @@ impl Package {
         Ok(())
     }
 
+
     pub fn is_vat_package(package_path: &PathBuf ) -> bool {
         let vat_yaml_path = package_path.join(VAT_TOML);
         vat_yaml_path.exists()
     }
+    
 
     pub fn is_vat_package_dir(package_path: &PathBuf ) -> bool {
         let vat_yaml_path = package_path.join(VAT_TOML);
         vat_yaml_path.exists()
     }
 
+
     pub fn get_current_version(&self) -> String{
         self.package_info.version.clone()
     }
+
 
     pub fn increment_version(&mut self, major: bool, minor: bool, patch: bool) {
         let version_parts: Vec<&str> = self.package_info.version.split('.').collect();
@@ -117,9 +156,10 @@ impl Package {
         } 
     }
 
+
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PackageInfo {
     pub name: String,
     pub version: String,
@@ -128,7 +168,7 @@ pub struct PackageInfo {
     pub repository: RepositoryType,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum RepositoryType {
     Local(PathBuf),
     Remote(String),
@@ -136,7 +176,7 @@ pub enum RepositoryType {
 
 
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct BuildCommand{
     pub command: String,
     pub args: Vec<String>,
@@ -150,7 +190,7 @@ impl BuildCommand {
 }
 
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Environtment {
     pub name: String,
     pub value: String,
@@ -158,11 +198,23 @@ pub struct Environtment {
 }
 
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum EnvAction {
     Prepend,
     Append,
     Define,
+}
+
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Dependencies {
+    pub dependencies: Vec<String>,
+}
+
+impl Default for Dependencies {
+    fn default() -> Self {
+        Self { dependencies: vec![] }
+    }
 }
 
 trait Path {
