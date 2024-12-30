@@ -54,7 +54,6 @@ impl Package {
         name: String,   
     ) -> Self 
     {
-        let current_dir = std::env::current_dir().unwrap();
 
         let env = Environtment::new();
 
@@ -66,10 +65,11 @@ impl Package {
                 version_message: "".to_string(),
                 description: "".to_string(),
                 authors: vec![] ,
+                repository: None,
                 },
             dependencies: None,
-            command: Some(HashMap::from([("houdini20".to_string(), command)])),
-            environment: Some(HashMap::from([("python".to_string(), env)])),
+            command: Some(HashMap::from([("temp".to_string(), command)])),
+            environment: Some(HashMap::from([("temp".to_string(), env)])),
         }
     }
 
@@ -103,11 +103,6 @@ impl Package {
 
         // get the current working directory
         let current_dir_name = current_dir.file_name().unwrap().to_str().unwrap();
-
-        // match current_dir.is_empty() {
-        //     false => return Err(anyhow::anyhow!("The current directory is not empty")),
-        //     true => (),
-        // }
 
         let vat_yaml_path = current_dir.join(VAT_TOML);
         if vat_yaml_path.exists() {
@@ -218,6 +213,7 @@ impl Package {
                             return Err(anyhow::anyhow!("The path is not valid: {}", new_env_value));
                         }
                     }
+
                     match env.action.as_ref().unwrap() {
                         EnvAction::Prepend => {
                             let current_value = std::env::var(env.variable.clone());
@@ -230,6 +226,7 @@ impl Package {
                                 }
                             }
                         }
+
                         EnvAction::Append => {
                             let current_value = std::env::var(env.variable.clone());
                             match current_value {
@@ -241,6 +238,7 @@ impl Package {
                                 }
                             }
                         }
+
                         EnvAction::Define => {
                             std::env::set_var(env.variable.clone(), new_env_value);
                         }
@@ -256,6 +254,7 @@ impl Package {
             Err(anyhow::anyhow!("No environments found in the package"))
         }
     }
+
 
     pub fn command_load_env(&self, command_name: &str, root_path: &PathBuf) -> Result<(), anyhow::Error> {
         if self.command.is_some() {
@@ -288,6 +287,7 @@ impl Package {
         Ok(())
     }
 
+
     pub fn run_only_command(&self, command_name: &str) -> Result<(), anyhow::Error> {
         
         if self.command.is_some() {
@@ -316,6 +316,7 @@ pub struct PackageInfo {
     pub version_message: String,
     pub description: String,
     pub authors: Vec<String>,
+    pub repository: Option<String>,
 }
 
 
