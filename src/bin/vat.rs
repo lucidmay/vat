@@ -2,11 +2,12 @@ use clap::{Parser, Subcommand, Args};
 use colored::*;
 use std::process::Command;
 use vat::config::VatConfig;
-use vat::repository::{VatRepository, VatRepository2};
+use vat::repository::VatRepository2;
 use vat::package::Package;
 use git2::Repository as GitRepository;
 use std::io::{self, Write}; 
 use vat::git::Git;
+use vat::git::GitTags;
 
 /// Simple program to demonstrate colored CLI
 #[derive(Parser)]
@@ -21,8 +22,13 @@ struct Cli {
 enum Commands {
     Init,
     Read,
-    Houdini,
-    Publish,
+    Publish{
+        #[arg(short = 'm', long)]
+        message: Option<String>,
+        
+        #[arg(short, long)]
+        remote: bool,
+    },
     Repo,
     RepoInit,
     Up{
@@ -36,7 +42,10 @@ enum Commands {
     Test{
         #[arg(required = false)]
         subcommand:Option<String>,
+        #[arg(long="append", short='a', num_args = 1..)]
+        append: Option<Vec<String>>
     },
+
 }
 
 fn main() {
@@ -61,92 +70,109 @@ fn main() {
                 }
             }
         },
-        Some(Commands::Houdini) => {
-            println!("houdini");
-        }
+   
 
-        Some(Commands::Publish) => {
+        Some(Commands::Publish { message, remote }) => {
             let current_dir = std::env::current_dir().unwrap();
             let repo = GitRepository::open(&current_dir).unwrap();
             let tags = repo.get_tags().unwrap();
-            if !tags.is_empty() {
-                if let Some(latest_tag) = tags.last() {
-                    println!("Latest tag: {:?}", latest_tag);
+            let git_tags = GitTags::new(tags);
+            if !git_tags.tags.is_empty() {
+                if let Some(latest_tag) = git_tags.get_latest() {
+                    if remote{
+                        println!("{}", format!("Publishing to remote").green());
+                        // git push 
+                        let cmd = Command::new("git").args(&["push"]).current_dir(&current_dir).output().unwrap();
+                        //git push origin v1.0.0
+                        let cmd = Command::new("git").args(&["push", "origin", latest_tag.to_string().as_str()]).current_dir(&current_dir).output().unwrap();
+                        if cmd.status.success() {
+                            println!("{}", format!("Git push successful").green());
+                            return;
+                        }else{
+                            eprintln!("{}", format!("Git push failed: {}", cmd.status).red());
+                        }
+
+                    }
+                }
+            }
+
+            if remote {
+                println!("{}", format!("Publishing to remote").green());
+                let cmd = Command::new("git").args(&["push", "--tags"]).current_dir(&current_dir).output().unwrap();
+                if cmd.status.success() {
+                    println!("{}", format!("Git push successful").green());
+                    return;
+                }else{
+                    eprintln!("{}", format!("Git push failed: {}", cmd.status).red());
+                }
+            }else{
+
+                let package = Package::read(&current_dir);
+                match package{
+                    Ok(package) => {
+
+                    }
+                    Err(e) => {
+                        eprintln!("{}", format!("Vat package error: {}: {}", e, current_dir.display()).red());
+                        return;
+                    }
+                }
+
+            }
+
+
+
+            if !remote {
+                let tags = repo.get_tags().unwrap();
+                if !tags.is_empty() {
+                    if let Some(latest_tag) = tags.last() {
+                        println!("Latest tag: {:?}", latest_tag);
+                    } else {
+                        println!("No tags found");
+                    }
                 } else {
                     println!("No tags found");
                 }
-            } else {
-                println!("No tags found");
-            }
 
 
-            // check if remote repository is set
-            let remote = repo.get_remotes().unwrap();
-            if !remote.is_empty() {
-                println!("Remote git repository: {:?}", remote.first().unwrap());
-            } else {
-                println!("No remote git repository set");
-            }
+                // check if remote repository is set
+                let remote = repo.get_remotes().unwrap();
+                if !remote.is_empty() {
+                    println!("Remote git repository: {:?}", remote.first().unwrap());
+                } else {
+                    println!("No remote git repository set");
+                }
 
-            let package = Package::read(&current_dir).unwrap();
+                let package = Package::read(&current_dir).unwrap();
 
-            // raw git checkout
-            let status = Command::new("git")
-                .arg("checkout")
-                .arg(package.get_current_version())
-                .current_dir(&current_dir)
-                .status()
-                .expect("Failed to execute git checkout");
-
-            if !status.success() {
-                eprintln!("Failed to checkout version");
-                return;
-            }
-
-            let mut repository = VatRepository::read_repository().unwrap();
-            let result = repository.add_package(package.clone()); // does not save
-            
-            match result {
-                Ok(_) => {
-                    // repository
-                    dbg!(&repository);
-                    let result =  VatRepository::package_data_update(&package);
-                    match result {
-                        Ok(_) => {
-                            println!("Package data updated successfully");
-                        }
-                        Err(e) => {
-                            eprintln!("Error updating package data: {}", e);
+                let mut vat_repository = VatRepository2::read_repository().unwrap();
+                let result = vat_repository.add_package(package.clone(), message.unwrap_or("".to_string()), current_dir.clone());
+                match result {
+                    Ok(_) => {
+                        let result = vat_repository.package_data_update(&package, current_dir.clone());
+                        match result {
+                            Ok(_) => {
+                                let result = vat_repository.save();
+                                match result {
+                                    Ok(_) => {
+                                        println!("Package added successfully");
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Error saving repository: {}", e);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("Error updating package data: {}", e);
+                            }
                         }
                     }
-
-                },
-                Err(e) => eprintln!("Error adding package: {}", e),
-            }
-
-            // Checkout the master branch in the destination directory
-            let status = Command::new("git")
-                .arg("checkout")
-                .arg("main")
-                .current_dir(current_dir) // Ensure you're checking out in the correct directory
-                .status()
-                .expect("Failed to execute git checkout");
-
-            if !status.success() {
-                eprintln!("Failed to checkout master. Exit code: {}", status.code().unwrap_or(-1));
-                return;
-            }
-
-            let result = repository.save();
-            match result {
-                Ok(_) => {
-                    println!("Repository saved successfully");
+                    Err(e) => {
+                        eprintln!("Error adding package: {}", e);
+                    }
                 }
-                Err(e) => {
-                    eprintln!("Error saving repository: {}", e);
-                }
-            }
-
+        }
+            // dbg!(&vat_repository);
             
         },
         Some(Commands::Repo) => {
@@ -192,7 +218,13 @@ fn main() {
                     println!("Version increment canceled.");
                     return;
                 }
+
+                println!("Tag message:");
+                io::stdout().flush().unwrap();
                 
+                let mut tag_message = String::new();
+                io::stdin().read_line(&mut tag_message).expect("Failed to read line");
+                package.set_version_message(tag_message.trim().to_string());
 
                 let repo = GitRepository::open(&current_dir).unwrap();
                 let tags = &repo.tag_names(None).unwrap();
@@ -242,27 +274,51 @@ fn main() {
                     return;
                 }
 
+
                 let mut revwalk = repo.revwalk().unwrap();
                 revwalk.push_head().unwrap();
                 let target_commit_oid = revwalk.next().unwrap().unwrap();
                 let target_commit = repo.find_object(target_commit_oid, None).unwrap();
-                // let signature = repo.signature().unwrap();
-                // println!("Tagger Name: {}", signature.name().unwrap());
-                // println!("Tagger Email: {}", signature.email().unwrap());
-                // println!("Tagger Time: {}", signature.when().seconds());
 
-                repo.tag(&package.get_current_version(), &target_commit, &repo.signature().unwrap(), "New version", true).unwrap();
+                repo.tag(&package.get_current_version().to_string(), &target_commit, &repo.signature().unwrap(), tag_message.trim(), true).unwrap();
                 println!("Tag created successfully");
 
             } else {
                 println!("Vat package not found");
             }
         },
-        Some(Commands::Test { subcommand }) => {
+        Some(Commands::Test { subcommand, append }) => {
             let current_dir = std::env::current_dir().unwrap();
             let package = Package::read(&current_dir).unwrap();
             if subcommand.is_some() {
-                package.run_command(&subcommand.unwrap()).unwrap();
+
+                if append.is_some() {
+                    let vat_repository = VatRepository2::read_repository().unwrap();
+                    for name in append.unwrap().iter() {
+                        let package = vat_repository.get_latest_package(&name);
+                        let latest_package_path = vat_repository.get_latest_package_path(&name).unwrap();
+                        if package.is_some() {
+                            let package = package.unwrap();
+                            println!("{}", format!("Appending package: {}: {}", name, &package.get_current_version()).green());
+                            package.load_all_environments(&latest_package_path).unwrap();
+                        }else{
+                            eprintln!("{}", format!("Package failed to append: {}", name).red());
+                        }
+                    }
+                }
+
+                let subcommand = subcommand.unwrap();
+                package.command_load_env(&subcommand, &current_dir).unwrap();
+                let result = package.run_only_command(&subcommand);
+                match result {
+                    Ok(_) => {
+                        println!("Command executed successfully");
+                    }
+                    Err(e) => {
+                        eprintln!("Error executing command: {}", e);
+                    }
+                }
+                // package.run_command(&subcommand, &current_dir).unwrap();
             } else {
                 println!("No subcommand provided");
             }

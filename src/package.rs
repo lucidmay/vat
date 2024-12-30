@@ -4,18 +4,18 @@ use std::path::PathBuf;
 use std::io::Write;
 use color_print::cprintln;
 use git2::Repository;
-
+use colored::*;
 const VAT_TOML: &str = "vat.toml";
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PackageVersions{
-    pub publishes: HashMap<String, Package>,
-    pub default: String,
+    pub publishes: HashMap<semver::Version, Package>,
+    pub default: semver::Version,
 }
 
 impl Default for PackageVersions {
     fn default() -> Self {
-        PackageVersions { publishes: HashMap::new(), default: "".to_string() }
+        PackageVersions { publishes: HashMap::new(), default: semver::Version::new(0, 0, 0) }
     }
 }
 
@@ -27,7 +27,7 @@ impl PackageVersions {
     pub fn from(package: Package) -> Self {
         let mut package_versions = PackageVersions{
             publishes: HashMap::new(),
-            default: "".to_string(),
+            default: semver::Version::new(0, 0, 0),
         };
         package_versions.append_version(package);
         package_versions
@@ -44,7 +44,7 @@ impl PackageVersions {
 pub struct Package{
     #[serde(rename="package")]
     pub package_info: PackageInfo,
-    pub dependencies: Dependencies,
+    pub dependencies: Option<Dependencies>,
     pub environment: Option<HashMap<String, Environtment>>,
     pub command: Option<HashMap<String, Command>>,
 }
@@ -62,12 +62,12 @@ impl Package {
 
         Self { 
             package_info: PackageInfo { name,
-                version: "0.0.0".to_string(),
+                version: semver::Version::new(0, 0, 0),
+                version_message: "".to_string(),
                 description: "".to_string(),
                 authors: vec![] ,
-                repository: RepositoryType::Local(current_dir),
                 },
-            dependencies: Dependencies::default(),
+            dependencies: None,
             command: Some(HashMap::from([("houdini20".to_string(), command)])),
             environment: Some(HashMap::from([("python".to_string(), env)])),
         }
@@ -77,8 +77,24 @@ impl Package {
         self.package_info.name.clone()
     }
 
-    pub fn get_version(&self) -> String {
+    pub fn get_version(&self) -> semver::Version {
         self.package_info.version.clone()
+    }
+
+    pub fn get_version_message(&self) -> String {
+        self.package_info.version_message.clone()
+    }
+
+    pub fn list_commands(&self){
+        // print the commands
+        if self.command.is_some() {
+            let commands = self.command.as_ref().unwrap();
+            for (key, value) in commands {
+                println!("{}: {}", key, value.script);
+            }
+        }else{
+            eprintln!("{}", format!("No commands found").red());
+        }
     }
 
 
@@ -118,7 +134,11 @@ impl Package {
 
 
     pub fn read(package_path: &PathBuf) -> Result<Package, anyhow::Error> {
-        let toml_string = std::fs::read_to_string(package_path.join(VAT_TOML))?;
+        let vat_toml_path = package_path.join(VAT_TOML);
+        if !vat_toml_path.exists() {
+            return Err(anyhow::anyhow!("{} not found", VAT_TOML));
+        }
+        let toml_string = std::fs::read_to_string(vat_toml_path)?;
         let package: Package = toml::from_str(&toml_string)?;
         Ok(package)
     }
@@ -144,78 +164,85 @@ impl Package {
     }
 
 
-    pub fn get_current_version(&self) -> String{
+    pub fn get_current_version(&self) -> semver::Version{
         self.package_info.version.clone()
     }
 
 
     pub fn increment_version(&mut self, major: bool, minor: bool, patch: bool) {
-        let version_parts: Vec<&str> = self.package_info.version.split('.').collect();
-    
-        let major_version = version_parts[0].parse::<i32>().unwrap();
-        let minor_version = version_parts.get(1).and_then(|s| s.parse::<i32>().ok()).unwrap_or(0);
-        let patch_version = version_parts.get(2).and_then(|s| s.parse::<i32>().ok()).unwrap_or(0);
+        let version_parts = self.package_info.version.clone();
+        let major_version = version_parts.major;
+        let minor_version = version_parts.minor;
+        let patch_version = version_parts.patch;
 
         if major {
             // Increment major version and reset minor and patch
-            self.package_info.version = format!("{}.0.0", major_version + 1);
+            self.package_info.version = semver::Version::new(major_version + 1, 0, 0);
         } else if minor {
             // Increment minor version and reset patch
-            self.package_info.version = format!("{}.{}.0", major_version, minor_version + 1);
+            self.package_info.version = semver::Version::new(major_version, minor_version + 1, 0);
         } else {
             // Increment patch version
-            self.package_info.version = format!("{}.{}.{}", major_version, minor_version, patch_version + 1);
+            self.package_info.version = semver::Version::new(major_version, minor_version, patch_version + 1);
         } 
     }
 
-    pub fn load_all_environments(&self) -> Result<(), anyhow::Error> {
+    pub fn set_version_message(&mut self, message: String) {
+        self.package_info.version_message = message;
+    }
+
+    pub fn load_all_environments(&self, root_path: &PathBuf) -> Result<(), anyhow::Error> {
         if self.environment.is_some() {
             let env = self.environment.as_ref().unwrap();
             for (key, value) in env {
-                self.load_environments(key)?;
-
-                // print environtm
-                // let env_value = std::env::var(key).unwrap_or_default();
-                // println!("{}: {}", key, env_value);
+                self.load_environments(key, root_path)?;
             }
         }
         Ok(())
     }
 
 
-    pub fn load_environments(&self, env_name: &str) -> Result<(), anyhow::Error> {
+    pub fn load_environments(&self, env_name: &str, root_path: &PathBuf) -> Result<(), anyhow::Error> {
         if self.environment.is_some() {
             let env = self.environment.as_ref().unwrap();
             if env.contains_key(env_name) {
                 let env = env.get(env_name).unwrap();
+
+                let new_env_value = env.value.clone().replace("{root}", &root_path.to_str().unwrap());
+
                 if env.action.is_some() {
+
                     if env.variable == "PATH"{
-                        let path = PathBuf::from(env.value.clone());
+                        let path = PathBuf::from(new_env_value.clone());
                         if !path.exists() {
-                            return Err(anyhow::anyhow!("The path is not valid: {}", env.value));
+                            return Err(anyhow::anyhow!("The path is not valid: {}", new_env_value));
                         }
                     }
                     match env.action.as_ref().unwrap() {
                         EnvAction::Prepend => {
-                            let current_value = std::env::var(env.variable.clone()).unwrap_or_default();
-                            std::env::set_var(env.variable.clone(), format!("{};{}", env.value, current_value));
+                            let current_value = std::env::var(env.variable.clone());
+                            match current_value {   
+                                Ok(value) => {
+                                    std::env::set_var(env.variable.clone(), format!("{};{}", new_env_value, value));
+                                }
+                                Err(_) => {
+                                    std::env::set_var(env.variable.clone(), new_env_value);
+                                }
+                            }
                         }
                         EnvAction::Append => {
-                            // let current_value = std::env::var(env.variable.clone()).unwrap_or_default();
-                            // std::env::set_var(env.variable.clone(), format!("{};{}", current_value, env.value));
-
                             let current_value = std::env::var(env.variable.clone());
                             match current_value {
                                 Ok(value) => {
-                                    std::env::set_var(env.variable.clone(), format!("{};{}", env.value, value));
+                                    std::env::set_var(env.variable.clone(), format!("{};{}", value, new_env_value));
                                 }
                                 Err(_) => {
-                                    std::env::set_var(env.variable.clone(), env.value.clone());
+                                    std::env::set_var(env.variable.clone(), new_env_value);
                                 }
                             }
                         }
                         EnvAction::Define => {
-                            std::env::set_var(env.variable.clone(), env.value.clone());
+                            std::env::set_var(env.variable.clone(), new_env_value);
                         }
                     }
 
@@ -223,81 +250,42 @@ impl Package {
                 }
                 Ok(())
             } else {
-                Err(anyhow::anyhow!("Environment not found: {}", env_name))
+                Err(anyhow::anyhow!("Environment action is not defined"))
             }
         } else {
             Err(anyhow::anyhow!("No environments found in the package"))
         }
     }
 
-    pub fn command_load_env(&self, command_name: &str) -> Result<(), anyhow::Error> {
+    pub fn command_load_env(&self, command_name: &str, root_path: &PathBuf) -> Result<(), anyhow::Error> {
         if self.command.is_some() {
             let commands = self.command.as_ref().unwrap();
             if commands.contains_key(command_name) {
                 let command = commands.get(command_name);
-                if command.is_some() {
-                    let command = command.unwrap();
+                if let Some(command) = command {
                     if command.env.is_some() {
                         for env in command.env.as_ref().unwrap() {
-                            println!("Loading environment variable: {}", &env);
-                            self.load_environments(env)?;
+                            println!("Loading environment variable: {} \n", &env);
+                            self.load_environments(env, root_path)?;
                         }
                     }else{
                         // load all environemts
                         if self.environment.is_some() {
                             let env = self.environment.as_ref().unwrap();
                             for (key, value) in env {
-                                println!("Loading environment: {}", &key);
-                                self.load_environments(key)?;
+                                println!("Loading environment: {} \n", &key);
+                                self.load_environments(key, root_path)?;
                             }
                         }
                     }
+                }else{
+                    cprintln!("{}", format!("Command not found: {}", command_name).red());
                 }
+            }else{
+                cprintln!("{}", format!("Command not found: {}", command_name).red());
             }
         }
         Ok(())
-    }
-
-    pub fn run_command(&self, command_name: &str) -> Result<(), anyhow::Error> {
-        if self.command.is_some() {
-            let commands = self.command.as_ref().unwrap();
-            if commands.contains_key(command_name) {
-                let command = commands.get(command_name);
-                if command.is_some() {
-                    println!("Command found: {}", &command_name);
-                    let command = command.unwrap();
-                    // check if env is defined
-                    if command.env.is_some() {
-                        for env in command.env.as_ref().unwrap() {
-                            println!("Loading environment variable: {}", &env);
-                            self.load_environments(env)?;
-                        }
-                    }else{
-                        // load all environemts
-                        if self.environment.is_some() {
-                            let env = self.environment.as_ref().unwrap();
-                            for (key, value) in env {
-                                println!("Loading environment: {}", &key);
-                                self.load_environments(key)?;
-                            }
-                        }
-                    }
-                    let script = command.script.clone();
-                    println!("Running script: {}", &script);
-                    let status = std::process::Command::new(&script).status()?;
-                    if !status.success() {
-                        return Err(anyhow::anyhow!("Command failed: {}", script));
-                    }
-                    Ok(())
-                } else {
-                    Err(anyhow::anyhow!("Command not found: {}", command_name))
-                }
-            } else {
-                Err(anyhow::anyhow!("Command not found: {}", command_name))
-            }
-        } else {
-            Err(anyhow::anyhow!("No commands found in the package"))
-        }
     }
 
     pub fn run_only_command(&self, command_name: &str) -> Result<(), anyhow::Error> {
@@ -324,16 +312,10 @@ impl Package {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PackageInfo {
     pub name: String,
-    pub version: String,
+    pub version: semver::Version,
+    pub version_message: String,
     pub description: String,
     pub authors: Vec<String>,
-    pub repository: RepositoryType,
-}
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub enum RepositoryType {
-    Local(PathBuf),
-    Remote(String),
 }
 
 

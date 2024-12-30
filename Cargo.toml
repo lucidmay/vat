@@ -32,3 +32,4 @@ git2 = {workspace = true}
 ## fs
 fs_extra = {workspace = true}   
 zip = {workspace = true}
+semver = {workspace = true}

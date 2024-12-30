@@ -1,4 +1,5 @@
 use git2::Repository as GitRepository;
+use semver;
 
 pub trait Git {
     fn get_tags(&self) -> Result<Vec<String>, anyhow::Error>;
@@ -21,4 +22,17 @@ impl Git for GitRepository {
     }
 }
 
+pub struct GitTags{
+    pub tags: Vec<semver::Version>,
+}
 
+impl GitTags{
+    pub fn new(tags: Vec<String>) -> Self{
+        let tags = tags.iter().map(|tag| semver::Version::parse(tag).unwrap()).collect::<Vec<_>>();
+        Self{tags}
+    }
+
+    pub fn get_latest(&self) -> Option<semver::Version> {
+        self.tags.iter().max().cloned()
+    }
+}
