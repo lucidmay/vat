@@ -72,16 +72,16 @@ impl VatRepository2{
     }
 
     pub fn add_package(&mut self, package: Package, message: String, current_dir: PathBuf) -> Result<(), anyhow::Error>{
-        if self.packages.contains_key(&package.get_name()){
-            let package_versions = self.packages.get_mut(&package.get_name()).unwrap();
+        if self.packages.contains_key(&package.get_name().to_string()){
+            let package_versions = self.packages.get_mut(&package.get_name().to_string()).unwrap();
             if package_versions.versions.contains_key(&package.get_version()){
                 return Err(anyhow::anyhow!("Package version has already been published, {}", package.get_version()));
             }else{
-                package_versions.versions.insert(package.get_version(), message);
+                package_versions.versions.insert(package.get_version().clone(), message);
                 Ok(())
             }
         }else{
-            self.packages.insert(package.get_name(), PublishedVersions::from(package.clone(), message, current_dir, None));
+            self.packages.insert(package.get_name().to_string(), PublishedVersions::from(package.clone(), message, current_dir, None));
             Ok(())
         }   
     }
@@ -263,7 +263,7 @@ pub struct PublishedVersions{
 
 impl PublishedVersions{
     pub fn from(package: Package, message: String, package_path: PathBuf, repository: Option<PathBuf>) -> Self{
-        let version  = HashMap::from([(package.get_version(), message)]);
+        let version  = HashMap::from([(package.get_version().clone(), message)]);
         PublishedVersions{versions: version, package_path, repository}
     }
 }
@@ -340,8 +340,8 @@ impl VatRepository {
     }
 
     pub fn add_package(&mut self, package: Package) -> Result<Package, anyhow::Error> {
-        if self.packages.contains_key(&package.get_name()){
-            let package_versions = self.packages.get_mut(&package.get_name()).unwrap();
+        if self.packages.contains_key(&package.get_name().to_string()){
+            let package_versions = self.packages.get_mut(&package.get_name().to_string()).unwrap();
             if package_versions.publishes.contains_key(&package.get_version()){
                 return Err(anyhow::anyhow!("Package version has already been published, {}", package.get_version()));
             }
@@ -349,7 +349,7 @@ impl VatRepository {
             self.save()?;
             Ok(package)
         }else{
-            let package_name = package.get_name();
+            let package_name = package.get_name().to_string();
             let package_versions = PackageVersions::from(package.clone());
             self.packages.insert(package_name, package_versions);
             self.save()?;

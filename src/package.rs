@@ -21,7 +21,7 @@ impl Default for PackageVersions {
 
 impl PackageVersions {
     pub fn append_version(&mut self, package: Package) {
-        self.publishes.insert(package.get_version(), package);
+        self.publishes.insert(package.get_version().clone(), package);
     }
 
     pub fn from(package: Package) -> Self {
@@ -73,16 +73,16 @@ impl Package {
         }
     }
 
-    pub fn get_name(&self) -> String {
-        self.package_info.name.clone()
+    pub fn get_name(&self) -> &str {
+        &self.package_info.name
     }
 
-    pub fn get_version(&self) -> semver::Version {
-        self.package_info.version.clone()
+    pub fn get_version(&self) -> &semver::Version {
+        &self.package_info.version
     }
 
-    pub fn get_version_message(&self) -> String {
-        self.package_info.version_message.clone()
+    pub fn get_version_message(&self) -> &str {
+        &self.package_info.version_message
     }
 
     pub fn list_commands(&self){

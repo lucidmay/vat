@@ -173,7 +173,7 @@ fn main(){
 
                     let package = Package::read(&package_path).unwrap();
 
-                    let result = vat_repository.add_package(package.clone(), package.get_version_message(), package_path.clone());
+                    let result = vat_repository.add_package(package.clone(), package.get_version_message().to_string(), package_path.clone());
                     match result {
                         Ok(_) => {
                             let result = vat_repository.package_data_update(&package, package_path.clone());
