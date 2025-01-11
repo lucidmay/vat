@@ -79,6 +79,24 @@ impl Registry{
         fs::write(&registry_path, registry_str).unwrap();
         Ok(())
     }   
+
+    pub fn get_package(&self, package_name: &str) -> Option<PackageRegistry>{
+        if !self.registry.contains_key(package_name){
+            return None;
+        }
+        self.registry.get(package_name).cloned()
+    }
+
+    pub fn read_package(&self, package_name: &str) -> Result<Package, anyhow::Error>{
+        let package_register = self.get_package(package_name);
+        if package_register.is_none(){
+            return Err(anyhow::anyhow!("Package does not exist: {}", package_name));
+        }
+        let package_path = package_register.unwrap().path;
+        let package_str = fs::read_to_string(&package_path).unwrap();
+        let package: Package = serde_json::from_str(&package_str).unwrap();
+        Ok(package)
+    }
 }
 
 
