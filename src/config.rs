@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use serde::{Serialize, Deserialize};
 use dirs_next::{config_dir, document_dir};
 use std::fs;
-
+use crate::registry::{Registry, RegistryLock};
 
 
 const CONFIG_FILE_NAME: &str = "vat.config";
@@ -16,7 +16,7 @@ pub struct VatConfig{
 impl Default for VatConfig{
     fn default() -> Self {
         VatConfig{
-            repository_path: None
+            repository_path: None,
         }
     }
 }

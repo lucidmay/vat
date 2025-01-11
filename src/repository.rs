@@ -6,11 +6,13 @@ use color_print::cprintln;
 use std::collections::HashMap;
 use crate::package::{Package, PackageVersions};
 use std::io::Write;
-use fs_extra::{copy_items, dir::{copy, CopyOptions}};
+use fs_extra::dir::CopyOptions;
 use zip::read::ZipArchive;
 use std::fs::File;
 use std::io;
 use colored::*;
+use semver::Version;
+
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VatRepository2{
@@ -71,17 +73,17 @@ impl VatRepository2{
         Ok(VatRepository2::default())
     }
 
-    pub fn add_package(&mut self, package: Package, message: String, current_dir: PathBuf) -> Result<(), anyhow::Error>{
+    pub fn add_package(&mut self, package: Package, message: Option<String>, current_dir: PathBuf) -> Result<(), anyhow::Error>{
         if self.packages.contains_key(&package.get_name().to_string()){
             let package_versions = self.packages.get_mut(&package.get_name().to_string()).unwrap();
             if package_versions.versions.contains_key(&package.get_version()){
                 return Err(anyhow::anyhow!("Package version has already been published, {}", package.get_version()));
             }else{
-                package_versions.versions.insert(package.get_version().clone(), message);
+                package_versions.versions.insert(package.get_version().clone(), message.unwrap());
                 Ok(())
             }
         }else{
-            self.packages.insert(package.get_name().to_string(), PublishedVersions::from(package.clone(), message, current_dir, None));
+            self.packages.insert(package.get_name().to_string(), PublishedVersions::from(package.clone(), message.unwrap(), current_dir, None));
             Ok(())
         }   
     }
@@ -254,9 +256,10 @@ impl VatRepository2{
 
 }
 
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PublishedVersions{
-    pub versions: HashMap<semver::Version, String>,
+    pub versions: HashMap<Version, String>,
     pub package_path: PathBuf,
     pub repository: Option<PathBuf>
 }

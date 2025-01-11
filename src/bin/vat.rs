@@ -8,6 +8,7 @@ use git2::Repository as GitRepository;
 use std::io::{self, Write}; 
 use vat::git::Git;
 use vat::git::GitTags;
+use vat::registry::{Registry, RegistryLock};
 
 /// Simple program to demonstrate colored CLI
 #[derive(Parser)]
@@ -21,7 +22,10 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     Init,
-    Read,
+    New{
+        name: String,
+    },
+    LocateProject,
     Publish{
         #[arg(short = 'm', long)]
         message: Option<String>,
@@ -29,6 +33,7 @@ enum Commands {
         #[arg(short, long)]
         remote: bool,
     },
+    Register,
     Repo,
     RepoInit,
     Up{
@@ -48,34 +53,52 @@ enum Commands {
 
 }
 
-fn main() {
+fn main() -> Result<(), anyhow::Error> {
     let cli = Cli::parse();
 
     match cli.command {
         Some(Commands::Init) => {
-            let current_dir = std::env::current_dir().unwrap();
-            if let Err(e) = Package::init(current_dir) {
+            let current_dir = std::env::current_dir()?;
+            if let Err(e) = Package::init(current_dir, None) {
                 eprintln!("{}", format!("Error initializing Vat: {}", e).red()); 
+                return Err(anyhow::anyhow!("Error initializing Vat"));
+            }else{
+                return Ok(());
             }
         }
-        Some(Commands::Read) => {
-            let current_dir = std::env::current_dir().unwrap();
+        Some(Commands::New { name }) => {
+            let current_dir = std::env::current_dir()?;
+            if let Err(e) = Package::init(current_dir.clone(), Some(name.clone())) {
+                eprintln!("{}", format!("Error initializing Vat: {}", e).red()); 
+                return Err(anyhow::anyhow!("Error initializing Vat"));
+            }else{
+                // create folder
+                let package_dir = current_dir.join(name);
+                std::fs::create_dir_all(package_dir).unwrap();  
+                println!("{}", format!("Vat package initialized").green());
+                return Ok(());
+            }
+        }
+        Some(Commands::LocateProject) => {
+            let current_dir = std::env::current_dir()?;
             let vat = Package::read(&current_dir);
             match vat {
                 Ok(package) => {
                     println!("Package: {:?}", package);
+                    return Ok(());
                 }
                 Err(e) => {
                     eprintln!("{}", format!("Error reading Vat: {}", e).red());
+                    return Err(anyhow::anyhow!("Error reading Vat"));
                 }
             }
         },
    
 
         Some(Commands::Publish { message, remote }) => {
-            let current_dir = std::env::current_dir().unwrap();
-            let repo = GitRepository::open(&current_dir).unwrap();
-            let tags = repo.get_tags().unwrap();
+            let current_dir = std::env::current_dir()?;
+            let repo = GitRepository::open(&current_dir)?;
+            let tags = repo.get_tags()?;
             let git_tags = GitTags::new(tags);
             if !git_tags.tags.is_empty() {
                 if let Some(latest_tag) = git_tags.get_latest() {
@@ -87,9 +110,10 @@ fn main() {
                         let cmd = Command::new("git").args(&["push", "origin", latest_tag.to_string().as_str()]).current_dir(&current_dir).output().unwrap();
                         if cmd.status.success() {
                             println!("{}", format!("Git push successful").green());
-                            return;
+                            return Ok(());
                         }else{
                             eprintln!("{}", format!("Git push failed: {}", cmd.status).red());
+                            return Err(anyhow::anyhow!("Git push failed"));
                         }
 
                     }
@@ -101,9 +125,10 @@ fn main() {
                 let cmd = Command::new("git").args(&["push", "--tags"]).current_dir(&current_dir).output().unwrap();
                 if cmd.status.success() {
                     println!("{}", format!("Git push successful").green());
-                    return;
+                    return Ok(());
                 }else{
                     eprintln!("{}", format!("Git push failed: {}", cmd.status).red());
+                    return Err(anyhow::anyhow!("Git push failed"));
                 }
             }else{
 
@@ -114,7 +139,7 @@ fn main() {
                     }
                     Err(e) => {
                         eprintln!("{}", format!("Vat package error: {}: {}", e, current_dir.display()).red());
-                        return;
+                        return Err(anyhow::anyhow!("Vat package error"));
                     }
                 }
 
@@ -123,7 +148,7 @@ fn main() {
 
 
             if !remote {
-                let tags = repo.get_tags().unwrap();
+                let tags = repo.get_tags()?;
                 if !tags.is_empty() {
                     if let Some(latest_tag) = tags.last() {
                         println!("Latest tag: {:?}", latest_tag);
@@ -136,17 +161,17 @@ fn main() {
 
 
                 // check if remote repository is set
-                let remote = repo.get_remotes().unwrap();
+                let remote = repo.get_remotes()?;
                 if !remote.is_empty() {
                     println!("Remote git repository: {:?}", remote.first().unwrap());
                 } else {
                     println!("No remote git repository set");
                 }
 
-                let package = Package::read(&current_dir).unwrap();
+                let package = Package::read(&current_dir)?;
 
-                let mut vat_repository = VatRepository2::read_repository().unwrap();
-                let result = vat_repository.add_package(package.clone(), message.unwrap_or("".to_string()), current_dir.clone());
+                let mut vat_repository = VatRepository2::read_repository()?;
+                let result = vat_repository.add_package(package.clone(), message.clone(), current_dir.clone());
                 match result {
                     Ok(_) => {
                         let result = vat_repository.package_data_update(&package, current_dir.clone());
@@ -156,37 +181,87 @@ fn main() {
                                 match result {
                                     Ok(_) => {
                                         println!("Package added successfully");
+                                        return Ok(());
                                     }
                                     Err(e) => {
                                         eprintln!("Error saving repository: {}", e);
+                                        return Err(anyhow::anyhow!("Error saving repository"));
                                     }
                                 }
                             }
                             Err(e) => {
                                 eprintln!("Error updating package data: {}", e);
+                                return Err(anyhow::anyhow!("Error updating package data"));
                             }
                         }
                     }
                     Err(e) => {
                         eprintln!("Error adding package: {}", e);
+                        return Err(anyhow::anyhow!("Error adding package"));
                     }
                 }
-        }
+            } else {
+                return Err(anyhow::anyhow!("Remote repository not set"));
+            }   
             // dbg!(&vat_repository);
             
+        },
+        Some(Commands::Register) => {
+            let registry_lock = RegistryLock::init();
+            match registry_lock{
+                Ok(mut registry_lock) => {
+                    if registry_lock.is_read_locked(){
+                        return Err(anyhow::anyhow!("Registry is locked by another process"));
+                    }else{
+                        registry_lock.lock_write()?;
+                        let registry = Registry::init();
+                        match registry{ 
+                            Ok(mut registry) => {
+                                let current_dir = std::env::current_dir()?;
+                                let package = Package::read(&current_dir)?;
+                                let result = registry.add_package(package, current_dir.clone());
+                                match result{
+                                    Ok(_) => {
+                                        println!("Package added successfully");
+                                        registry_lock.unlock_write()?;
+                                        return Ok(());
+                                    }
+                                    Err(e) => {
+                                        eprintln!("Error registering package: {}", e);
+                                        registry_lock.unlock_write()?;
+                                        return Err(anyhow::anyhow!("Error registering package"));
+                                    }
+                                }
+
+                                registry_lock.unlock_write()?;
+                                return Ok(());
+                            }
+                            Err(e) => {
+                                return Err(anyhow::anyhow!("Error initializing registry: {}", e));
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!("Error initializing registry lock: {}", e));
+                }
+            }
         },
         Some(Commands::Repo) => {
             let config = VatConfig::init().unwrap();
             println!("Repository path: {:?}", config.get_repository_path());
+            return Ok(());
         },
         Some(Commands::RepoInit) => {
             let repository = VatRepository2::init();
             match repository {
                 Ok(_) => {
                     println!("Repository initialized");
+                    return Ok(());
                 }
                 Err(e) => {
                     eprintln!("Error initializing repository: {}", e);
+                    return Err(anyhow::anyhow!("Error initializing repository"));
                 }
             }
         },
@@ -216,7 +291,7 @@ fn main() {
 
                 if !input.trim().eq_ignore_ascii_case("y") {
                     println!("Version increment canceled.");
-                    return;
+                    return Ok(());
                 }
 
                 println!("Tag message:");
@@ -255,7 +330,7 @@ fn main() {
                 // Check if the command was successful
                 if !status.success() {
                     eprintln!("Failed to stage changes.");
-                    return;
+                    return Err(anyhow::anyhow!("Failed to stage changes"));
                 }
 
                 // Commit the changes
@@ -271,7 +346,7 @@ fn main() {
                 // Check if the command was successful
                 if !status.success() {
                     eprintln!("Failed to commit changes.");
-                    return;
+                    return Err(anyhow::anyhow!("Failed to commit changes"));
                 }
 
 
@@ -282,10 +357,13 @@ fn main() {
 
                 repo.tag(&package.get_current_version().to_string(), &target_commit, &repo.signature().unwrap(), tag_message.trim(), true).unwrap();
                 println!("Tag created successfully");
+                return Ok(());
+
 
             } else {
                 println!("Vat package not found");
             }
+            return Err(anyhow::anyhow!("Vat package not found"));
         },
         Some(Commands::Test { subcommand, append }) => {
             let current_dir = std::env::current_dir().unwrap();
@@ -313,14 +391,17 @@ fn main() {
                 match result {
                     Ok(_) => {
                         println!("Command executed successfully");
+                        return Ok(());
                     }
                     Err(e) => {
                         eprintln!("Error executing command: {}", e);
+                        return Err(anyhow::anyhow!("Error executing command"));
                     }
                 }
                 // package.run_command(&subcommand, &current_dir).unwrap();
             } else {
                 println!("No subcommand provided");
+                return Err(anyhow::anyhow!("No subcommand provided"));
             }
 
             // std::process::Command::new("explorer").status().unwrap();
@@ -328,6 +409,7 @@ fn main() {
         None => {
             println!("Vat");
             println!("      Have you watched the Vat of Acid episode? https://en.wikipedia.org/wiki/The_Vat_of_Acid_Episode");
+            return Err(anyhow::anyhow!("No command provided"));
         },
     }
 }

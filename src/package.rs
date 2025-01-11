@@ -5,13 +5,17 @@ use std::io::Write;
 use color_print::cprintln;
 use git2::Repository;
 use colored::*;
+use crate::git::Git;
+
 const VAT_TOML: &str = "vat.toml";
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PackageVersions{
     pub publishes: HashMap<semver::Version, Package>,
     pub default: semver::Version,
+
 }
+
 
 impl Default for PackageVersions {
     fn default() -> Self {
@@ -38,6 +42,7 @@ impl PackageVersions {
         latest_version
     }
 
+
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -47,29 +52,31 @@ pub struct Package{
     pub dependencies: Option<Dependencies>,
     pub environment: Option<HashMap<String, Environtment>>,
     pub command: Option<HashMap<String, Command>>,
+    pub examples: Option<Vec<Example>>
+}
+
+impl Default for Package {
+    fn default() -> Self {
+        Self { package_info: PackageInfo::from("".to_string()), dependencies: None, command: None, environment: None, examples: None }
+    }
 }
 
 impl Package {  
-    pub fn new(
+    pub fn default(
         name: String,   
     ) -> Self 
     {
 
         let env = Environtment::new();
 
-        let command = Command { script: "houdini".to_string(), env: Some(vec!["PATH".to_string(), "PYTHONPATH".to_string()]) };
+        // let command = Command { command: "app.exe".to_string(), env: Some(vec!["PATH".to_string(), "PYTHONPATH".to_string()]) };
 
         Self { 
-            package_info: PackageInfo { name,
-                version: semver::Version::new(0, 0, 0),
-                version_message: "".to_string(),
-                description: "".to_string(),
-                authors: vec![] ,
-                repository: None,
-                },
+            package_info: PackageInfo::from(name),
             dependencies: None,
-            command: Some(HashMap::from([("temp".to_string(), command)])),
-            environment: Some(HashMap::from([("temp".to_string(), env)])),
+            command: None,
+            environment: None,
+            examples: None,
         }
     }
 
@@ -81,8 +88,8 @@ impl Package {
         &self.package_info.version
     }
 
-    pub fn get_version_message(&self) -> &str {
-        &self.package_info.version_message
+    pub fn get_version_message(&self) -> Option<&str> {
+        self.package_info.version_message.as_ref().map(|s| s.as_str())
     }
 
     pub fn list_commands(&self){
@@ -90,7 +97,7 @@ impl Package {
         if self.command.is_some() {
             let commands = self.command.as_ref().unwrap();
             for (key, value) in commands {
-                println!("{}: {}", key, value.script);
+                println!("{}: {}", key, value.command);
             }
         }else{
             eprintln!("{}", format!("No commands found").red());
@@ -98,33 +105,50 @@ impl Package {
     }
 
 
-    pub fn init(current_dir: PathBuf) -> Result<Self, anyhow::Error> {
-              cprintln!("      <green>Creating</green> vat default package");
+    pub fn init(current_dir: PathBuf, package_name: Option<String>) -> Result<Self, anyhow::Error> {
+            
+        let mut directory = current_dir.clone();
+        let mut folder_name = current_dir.file_name().unwrap().to_str().unwrap().to_string();
 
-        // get the current working directory
-        let current_dir_name = current_dir.file_name().unwrap().to_str().unwrap();
+        if package_name.is_some() {
+            directory = current_dir.join(package_name.clone().unwrap());
+            folder_name = package_name.clone().unwrap();
+            std::fs::create_dir_all(&directory)?;
+        }
 
-        let vat_yaml_path = current_dir.join(VAT_TOML);
+        cprintln!("      <green>Creating</green> vat package, `{}`", &folder_name);
+
+
+        let vat_yaml_path = directory.join(VAT_TOML);
         if vat_yaml_path.exists() {
             return Err(anyhow::anyhow!("{} already exists, looks like you already initialized the package", VAT_TOML));
         }
 
         // create yaml file
-        let toml_string = toml::to_string(&Package::new(current_dir_name.to_string()))?;
+        let toml_string = toml::to_string(&Package::default(folder_name.to_string()))?;
 
         let mut toml_file = std::fs::File::create(vat_yaml_path)?;
         toml_file.write_all(toml_string.as_bytes())?;
 
-        let git_repo = current_dir.join(".git");
+        let git_repo = directory.join(".git");
         if !git_repo.exists() {
-            let repo = match Repository::init(&current_dir) {
-                Ok(repo) => repo,
+            let repo = match Repository::init(&directory) {
+                Ok(repo) => {
+                    repo.git_ignore(&directory)?;
+                    // repo.create_main_branch()?;
+                }
                 Err(e) => panic!("failed to init: {}", e),
             };
         }
 
-        Ok(Self::new(current_dir_name.to_string()))
+        Ok(Self::default(folder_name.to_string()))
 
+    }
+
+
+    pub fn new(current_dir: PathBuf, package_name: String) -> Result<Self, anyhow::Error> {
+        let package = Self::init(current_dir, Some(package_name))?;
+        Ok(package)
     }
 
 
@@ -183,7 +207,7 @@ impl Package {
     }
 
     pub fn set_version_message(&mut self, message: String) {
-        self.package_info.version_message = message;
+        self.package_info.version_message = Some(message);
     }
 
     pub fn load_all_environments(&self, root_path: &PathBuf) -> Result<(), anyhow::Error> {
@@ -295,7 +319,7 @@ impl Package {
             if commands.contains_key(command_name) {
                 let command = commands.get(command_name);
                 if command.is_some() {
-                    let script = command.unwrap().script.clone();
+                    let script = command.unwrap().command.clone();
                     println!("Running script: {}", &script);
                     let status = std::process::Command::new(&script).status()?;
                     if !status.success() {
@@ -313,31 +337,57 @@ impl Package {
 pub struct PackageInfo {
     pub name: String,
     pub version: semver::Version,
-    pub version_message: String,
-    pub description: String,
+    pub version_message: Option<String>,
+    pub description: Option<String>,
     pub authors: Vec<String>,
     pub repository: Option<String>,
+    pub edition: Option<String>,
+    pub documentation: Option<PathBuf>,
+    pub readme: Option<PathBuf>,
+    pub license: Option<String>,
+    pub license_file: Option<PathBuf>,
+    pub build: Option<PathBuf>,
+    pub include: Option<Vec<PathBuf>>,
+    pub exclude: Option<Vec<PathBuf>>,
+    pub metadata: Option<HashMap<String, String>>,
+    pub keywords: Option<Vec<String>>,
+
+}
+
+impl PackageInfo{
+    pub fn from(name: String) -> Self {
+        Self { name,
+             version: semver::Version::new(0, 0, 0),
+            version_message: None,
+            description: None, 
+            authors: vec![],
+            repository: None,
+            edition: None,
+            documentation: None,
+            readme: None,
+            license: None,
+            license_file: None,
+            build: None,
+            include: None,
+            exclude: None,
+            metadata: None,
+            keywords: None
+        }
+    }
+}
+
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Example {
+    pub name: String,
+    pub path: String,
 }
 
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Command {
-    pub script: String,
-    pub env: Option<Vec<String>>
-}
-
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct BuildCommand{
     pub command: String,
-    pub args: Vec<String>,
-}
-
-
-impl BuildCommand {
-    pub fn new() -> Self {
-        Self { command: "cargo build".to_string(), args: vec![] }
-    }
+    pub env: Option<Vec<String>>
 }
 
 
