@@ -2,7 +2,6 @@ use std::path::PathBuf;
 use serde::{Serialize, Deserialize};
 use dirs_next::{config_dir, document_dir};
 use std::fs;
-use crate::registry::{Registry, RegistryLock};
 
 
 const CONFIG_FILE_NAME: &str = "vat.config";

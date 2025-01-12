@@ -67,7 +67,7 @@ impl Package {
     ) -> Self 
     {
 
-        let env = Environtment::new();
+        let _env = Environtment::new();
 
         // let command = Command { command: "app.exe".to_string(), env: Some(vec!["PATH".to_string(), "PYTHONPATH".to_string()]) };
 
@@ -132,7 +132,7 @@ impl Package {
 
         let git_repo = directory.join(".git");
         if !git_repo.exists() {
-            let repo = match Repository::init(&directory) {
+            let _repo = match Repository::init(&directory) {
                 Ok(repo) => {
                     repo.git_ignore(&directory)?;
                     // repo.create_main_branch()?;
@@ -163,11 +163,12 @@ impl Package {
     }
 
 
-    pub fn save(&self, package_path: &PathBuf) -> Result<(), anyhow::Error> {
+
+    pub fn save(&self, package_path: &PathBuf) -> Result<Self, anyhow::Error> {
         let toml_string = toml::to_string(self)?;
         let mut toml_file = std::fs::File::create(package_path.join(VAT_TOML))?;
         toml_file.write_all(toml_string.as_bytes())?;
-        Ok(())
+        Ok(self.clone())
     }
 
 

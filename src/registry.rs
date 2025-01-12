@@ -93,9 +93,19 @@ impl Registry{
             return Err(anyhow::anyhow!("Package does not exist: {}", package_name));
         }
         let package_path = package_register.unwrap().path;
-        let package_str = fs::read_to_string(&package_path).unwrap();
-        let package: Package = serde_json::from_str(&package_str).unwrap();
-        Ok(package)
+        if !package_path.exists(){
+            return Err(anyhow::anyhow!("Package path does not exist: {}", package_path.display()));
+        }
+        let package = Package::read(&package_path);
+        match package{  
+            Ok(package) => {
+                dbg!(&package);
+                Ok(package)
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!("Failed to read package: {}", e));
+            }
+        }
     }
 }
 
