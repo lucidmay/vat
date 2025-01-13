@@ -4,7 +4,7 @@ use crate::config::VatConfig;
 use serde::{Serialize, Deserialize};
 use color_print::cprintln;
 use std::collections::HashMap;
-use crate::package::{Package, PackageVersions};
+use crate::package::{self, Package, PackageVersions};
 use std::io::Write;
 use fs_extra::dir::CopyOptions;
 use zip::read::ZipArchive;
@@ -83,6 +83,9 @@ impl VatRepository2{
                 Ok(())
             }
         }else{
+            if message.is_none(){
+                return Err(anyhow::anyhow!("Message is required, to add a package to the repository `vat publish -m \"message\"`"));
+            }
             self.packages.insert(package.get_name().to_string(), PublishedVersions::from(package.clone(), message.unwrap(), current_dir, None));
             Ok(())
         }   
@@ -127,6 +130,56 @@ impl VatRepository2{
             Err(anyhow::anyhow!("Package not found: {}", package_name))
         }
     }
+
+    pub fn get_package(&self, package_name: &str, version: &str) -> Result<Package, anyhow::Error>{
+        if self.packages.contains_key(package_name){
+            let package_path = self.path.join("packages").join(package_name).join(version);
+            let package = Package::read(&package_path);
+            match package{
+                Ok(package) => {
+                    Ok(package)
+                }
+                Err(e) => {
+                    Err(anyhow::anyhow!("Error reading package: {}", e))
+                }
+            }
+        }else{
+            Err(anyhow::anyhow!("Package not found: {}", package_name))
+        }
+    }
+
+    pub fn resolve_package_version(&self, package_name: &str) -> Result<Package, anyhow::Error>{
+        let  package_and_version = package_name.split_once("/");
+        if package_and_version.is_some(){
+            let (package_name, version) = package_and_version.unwrap();
+            let package = self.get_package(package_name, version);
+            dbg!(&package);
+            match package{
+                Ok(package) => Ok(package),
+                Err(e) => {
+                    cprintln!("{}", format!("Package not found with version: {}", e).red());
+                    cprintln!("{}", format!("Fallback to latest version").yellow());
+                    let latest_package = self.get_latest_package(package_name);
+                    if latest_package.is_some(){
+                        Ok(latest_package.unwrap())
+                    }else{
+                        Err(anyhow::anyhow!("Package not found: {}", package_name))
+                    }
+                }
+            }
+        }else{
+            Err(anyhow::anyhow!("Invalid package name: {}", package_name))
+        }
+    }
+
+    pub fn resolve_package_version_option(&self, package_name: &str) -> Option<Package>{
+        let package = self.resolve_package_version(package_name);
+        match package{
+            Ok(package) => Some(package),
+            Err(_) => None
+        }
+    }
+
 
     pub fn get_latest_package(&self, package_name: &str) -> Option<Package>{
         if self.packages.contains_key(package_name){
@@ -255,6 +308,7 @@ impl VatRepository2{
 
 
 }
+
 
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

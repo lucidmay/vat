@@ -358,7 +358,7 @@ pub struct PackageInfo {
 impl PackageInfo{
     pub fn from(name: String) -> Self {
         Self { name,
-             version: semver::Version::new(0, 0, 0),
+             version: semver::Version::new(0, 0, 1),
             version_message: None,
             description: None, 
             authors: vec![],

@@ -49,10 +49,10 @@ fn main(){
     let package_name = cli.package_name;
 
     if let Some(package_name) = package_name {
-        let package = vat_repository.get_latest_package(&package_name);
+        let package = vat_repository.resolve_package_version_option(&package_name);
         if let Some(package) = package.clone() {
             if let Some(command) = cli.command {
-                let latest_package_path = vat_repository.get_latest_package_path(&package_name).unwrap();
+                let latest_package_path = vat_repository.get_latest_package_path(&package.package_info.name).unwrap();
                 // load the env for given command
                 let env_load = package.command_load_env(&command, &latest_package_path);
                 // if apped is not empty, load the env for the given packages
@@ -79,6 +79,7 @@ fn main(){
                 match env_load {
                     Ok(_) => {
                         let command = package.run_only_command(&command);
+                        dbg!(&command);
                         match command {
                             Ok(_) => {
                                 println!("Command run successfully");
