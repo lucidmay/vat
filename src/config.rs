@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use serde::{Serialize, Deserialize};
+use crate::repository::VatRepository2;
 use dirs_next::{config_dir, document_dir};
 use std::fs;
 
@@ -10,17 +11,37 @@ const CONFIG_FILE_NAME: &str = "vat.config";
 #[derive(Serialize, Deserialize, Debug)]
 pub struct VatConfig{
     pub repository_path: Option<PathBuf>,   
-}
+    pub packages_path: Option<PathBuf>,
 
-impl Default for VatConfig{
-    fn default() -> Self {
-        VatConfig{
-            repository_path: None,
-        }
-    }
 }
 
 impl VatConfig {
+    pub fn default() -> Self{
+        let vat_config_path = Self::get_app_dir().unwrap();
+        let default_repo_path = vat_config_path.join("repository");
+        let default_packages_path = vat_config_path.join("packages");
+        let result_repo = fs::create_dir_all(&default_repo_path);
+        if result_repo.is_err(){
+            println!("Failed to create repository directory: {:?}", result_repo.err());
+        }
+        let result_packages = fs::create_dir_all(&default_packages_path);
+        if result_packages.is_err(){
+            println!("Failed to create packages directory: {:?}", result_packages.err());
+        }
+
+        // initalize repository
+        let result_repo =   VatRepository2::initalize_repository(&default_repo_path);
+        if result_repo.is_err(){
+            println!("Failed to initalize repository: {:?}", result_repo.err());
+        }
+
+        VatConfig{
+            repository_path: Some(default_repo_path),
+            packages_path: Some(default_packages_path),
+        }
+    }
+
+
     pub fn init() -> Result<Self, anyhow::Error> {
 
         let app_dir = VatConfig::get_app_dir();

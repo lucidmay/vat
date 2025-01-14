@@ -3,9 +3,12 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::io::Write;
 use color_print::cprintln;
-use git2::Repository;
+use git2::Repository as GitRepository;
 use colored::*;
 use crate::git::Git;
+use crate::registry::Registry;
+use crate::git::GitTags;
+use crate::repository::VatRepository2 as VatRepository;
 
 const VAT_TOML: &str = "vat.toml";
 
@@ -108,7 +111,7 @@ impl Package {
     pub fn init(current_dir: PathBuf, package_name: Option<String>) -> Result<Self, anyhow::Error> {
             
         let mut directory = current_dir.clone();
-        let mut folder_name = current_dir.file_name().unwrap().to_str().unwrap().to_string();
+        let mut folder_name = current_dir.file_name().unwrap_or_default().to_str().unwrap_or_default().to_string();
 
         if package_name.is_some() {
             directory = current_dir.join(package_name.clone().unwrap());
@@ -132,7 +135,7 @@ impl Package {
 
         let git_repo = directory.join(".git");
         if !git_repo.exists() {
-            let _repo = match Repository::init(&directory) {
+            let _repo = match GitRepository::init(&directory) {
                 Ok(repo) => {
                     repo.git_ignore(&directory)?;
                     // repo.create_main_branch()?;
@@ -155,7 +158,7 @@ impl Package {
     pub fn read(package_path: &PathBuf) -> Result<Package, anyhow::Error> {
         let vat_toml_path = package_path.join(VAT_TOML);
         if !vat_toml_path.exists() {
-            return Err(anyhow::anyhow!("{} not found", VAT_TOML));
+            return Err(anyhow::anyhow!("{} given path is not a vat package, run `vat init` to initialize as a vat package", package_path.to_str().unwrap_or_default()));
         }
         let toml_string = std::fs::read_to_string(vat_toml_path)?;
         let package: Package = toml::from_str(&toml_string)?;
@@ -332,7 +335,106 @@ impl Package {
         Ok(())
     }
 
+
+    pub fn clone_package(git_url: &str, package_path: &PathBuf) -> Result<Package, anyhow::Error> {
+        // clone with progress
+        let clone = std::process::Command::new("git").args(&["clone", git_url, &package_path.to_str().unwrap()]).output().unwrap();
+        if !clone.status.success() {
+            return Err(anyhow::anyhow!("Failed to clone package: {}", git_url));
+        }
+        let result_read_package = Package::read(&package_path);
+        match result_read_package {
+            Ok(package) => {
+                // register the package
+                let registry = Registry::init();
+                match registry {
+                    Ok(mut registry) => {
+                        let result = registry.add_package(package.clone(), package_path.clone());
+                        match result {
+                            Ok(_) => Ok(package),
+                            Err(e) => Err(e)
+                        }
+                    }
+                    Err(e) => {
+                        Err(e)
+                    }
+                }
+            }
+            Err(e) => {
+                Err(e)
+            }
+        }
+    }
+
+    pub fn get_package_git_tags(package_path: &PathBuf) -> Option<Vec<String>> {
+        if Self::is_vat_package(package_path) {
+            let package = Package::read(package_path);
+            match package {
+                Ok(package) => {
+                    let repo = GitRepository::open(package_path);
+                    match repo {
+                        Ok(repo) => {
+                            let tags = repo.get_tags();
+                            match tags {
+                                Ok(tags) => Some(tags),
+                                Err(_) => None
+                            }
+                        }
+                        Err(_) => None
+                    }
+                }
+                Err(e) => {
+                    return None;
+                }
+            }
+        }else{
+            return None;
+        }
+    }
+
+    pub fn get_package_latest_tag(package_path: &PathBuf) -> Option<String> {
+        let tags = Self::get_package_git_tags(package_path);
+        if tags.is_some(){
+            let git_tags = GitTags::new(tags.unwrap());
+            if !git_tags.tags.is_empty(){
+                let latest_tag = git_tags.get_latest();
+                if latest_tag.is_some(){
+                    return Some(latest_tag.unwrap().to_string());
+                }
+            }
+        }
+        None
+    }
+
+
+    pub fn publish(package_name: String, message: String) -> Result<(), anyhow::Error> {
+        println!("PUBLISHING PACKAGE: {:?}", &package_name);
+        match Registry::init(){
+            Ok(mut registry) => {
+                let package_registry = registry.get_package(&package_name);
+                if package_registry.is_some(){
+                    let package_registry = package_registry.unwrap();
+                    let package_path = package_registry.path.clone();
+                    let package = Package::read(&package_path).unwrap();
+                    let repository = VatRepository::read_repository();
+                    match repository{
+                        Ok(mut repository) => {
+                            let result = repository.add_package(package.clone(), Some(message), package_path.clone());
+                            dbg!(repository);
+                            // repository.save();
+                            Ok(())
+                        }
+                        Err(e) => Err(e)
+                    };
+                }
+                Ok(())
+            }
+            Err(e) => Err(e)
+        }
+    }
+
 }
+
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PackageInfo {

@@ -28,6 +28,18 @@ impl Default for VatRepository2{
 
 
 impl VatRepository2{
+    pub fn initalize_repository(repository_path: &PathBuf) -> Result<Self, anyhow::Error>{
+        let repository_config_file = repository_path.join("vat.repository.toml");
+        let vat_repo = VatRepository2{
+            packages: HashMap::new(),
+            path: repository_path.clone(),
+        };
+        let repository_config_str = toml::to_string(&vat_repo)?;
+        fs::write(&repository_config_file, &repository_config_str)?;
+        Ok(vat_repo)
+    }
+
+
     pub fn init() -> Result<Self, anyhow::Error>{
         let current_dir = std::env::current_dir()?;
 
@@ -302,6 +314,8 @@ impl VatRepository2{
 
     pub fn save(&self) -> Result<(), anyhow::Error> {
         let repository_config_str = toml::to_string(self)?;
+        dbg!(&repository_config_str);
+        dbg!(&self.path);
         fs::write(&self.path.join("vat.repository.toml"), &repository_config_str)?;
         Ok(())
     }
