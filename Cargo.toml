@@ -33,3 +33,5 @@ git2 = {workspace = true}
 fs_extra = {workspace = true}   
 zip = {workspace = true}
 semver = {workspace = true}
+
+windows-sys = { version = "0.48", features = ["Win32_Foundation", "Win32_System_Threading"] }

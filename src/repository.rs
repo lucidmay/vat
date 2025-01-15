@@ -14,6 +14,14 @@ use colored::*;
 use semver::Version;
 
 
+#[cfg(target_os = "windows")]
+const DETACHED_PROCESS: u32 = 0x00000008;
+#[cfg(target_os = "windows")]
+const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+use std::os::windows::process::CommandExt;
+
+
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct VatRepository2{
     pub packages: HashMap<String, PublishedVersions>,
@@ -161,26 +169,30 @@ impl VatRepository2{
     }
 
     pub fn resolve_package_version(&self, package_name: &str) -> Result<Package, anyhow::Error>{
-        let  package_and_version = package_name.split_once("/");
-        if package_and_version.is_some(){
-            let (package_name, version) = package_and_version.unwrap();
-            let package = self.get_package(package_name, version);
-            dbg!(&package);
-            match package{
-                Ok(package) => Ok(package),
-                Err(e) => {
-                    cprintln!("{}", format!("Package not found with version: {}", e).red());
-                    cprintln!("{}", format!("Fallback to latest version").yellow());
-                    let latest_package = self.get_latest_package(package_name);
-                    if latest_package.is_some(){
-                        Ok(latest_package.unwrap())
-                    }else{
-                        Err(anyhow::anyhow!("Package not found: {}", package_name))
+        if package_name.contains("/"){
+            let package_and_version = package_name.split_once("/");
+            if package_and_version.is_some(){
+                let (package_name, version) = package_and_version.unwrap();
+                let package = self.get_package(package_name, version);
+                match package{
+                    Ok(package) => Ok(package),
+                    Err(e) => {
+                        Err(e)
                     }
                 }
+            }else{
+                Err(anyhow::anyhow!("Invalid package name: {}", package_name))
             }
         }else{
-            Err(anyhow::anyhow!("Invalid package name: {}", package_name))
+            let package = self.get_latest_package(package_name);
+            match package{
+                Some(package) => Ok(package),
+                None => {
+                    cprintln!("{}", format!("Package not found with version: {}", package_name).red());
+                    cprintln!("{}", format!("Fallback to latest version").yellow());
+                    Err(anyhow::anyhow!("Package not found: {}", package_name))
+                }
+            }
         }
     }
 
@@ -321,7 +333,41 @@ impl VatRepository2{
     }
 
 
+    // this is to use on tauri app
+    // TODO: just testing for now
+    pub fn run_command(command: &str, current_dir: Option<PathBuf>) -> Result<(), anyhow::Error>{
+
+        let vat_repository = VatRepository2::read_repository()?;
+
+        let package_name = command.split_once(" ").unwrap().0;
+        let command_name = command.split_once(" ").unwrap().1;
+        dbg!(&package_name);
+        let package = vat_repository.resolve_package_version_option(package_name);
+        dbg!(&package);
+        if let Some(package) = package{
+            dbg!(&package);
+            let latest_package_path = vat_repository.get_latest_package_path(package_name).unwrap();
+
+            // let env_load = package.command_load_env(&command_name, &latest_package_path);
+            let command = package.run_command(&command_name, &latest_package_path, current_dir);
+            match command{
+                Ok(_) => {
+                    Ok(())
+                }
+                Err(e) => {
+                    Err(e)
+                }
+            }
+
+        }else{
+            Err(anyhow::anyhow!("Package not found: {}", package_name))
+        }
+
+    }
+
+
 }
+
 
 
 

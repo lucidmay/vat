@@ -10,6 +10,14 @@ use crate::registry::Registry;
 use crate::git::GitTags;
 use crate::repository::VatRepository2 as VatRepository;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const DETACHED_PROCESS: u32 = 0x00000008;
+#[cfg(target_os = "windows")]
+const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+
 const VAT_TOML: &str = "vat.toml";
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -325,16 +333,78 @@ impl Package {
                 if command.is_some() {
                     let script = command.unwrap().command.clone();
                     println!("Running script: {}", &script);
-                    let status = std::process::Command::new(&script).status()?;
-                    if !status.success() {
-                        return Err(anyhow::anyhow!("Command failed: {}", script));
-                    }
+                    // let mut status = std::process::Command::new(&script).spawn().expect("Filed to run command");
+
+                    println!("Current Environment Variables:");
+                    // for (key, value) in std::env::vars() {
+                    //     println!("{}: {}", key, value);
+                    // }
+
+
+                    let mut command = std::process::Command::new(&script);
+                    command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+
+
+
+                    // command.env("HOUDINI_USER_PREF_DIR", "C:\\Users\\Deepak\\Documents\\houdini20.5");
+                    // command.args(&["/C", "start", "cmd", "/K", &script]);
+                    // command.args(&[&script]);
+                    command.stdout(std::process::Stdio::null());
+                    command.stderr(std::process::Stdio::null());
+                    command.stdin(std::process::Stdio::null());
+
+                    let _child = command.spawn();
+
                 }
             }
         }
         Ok(())
     }
 
+    pub fn run_command(&self, command_name: &str, root_path: &PathBuf, current_dir: Option<PathBuf>) -> Result<(), anyhow::Error> {
+        
+        if self.command.is_some() {
+            let commands = self.command.as_ref().unwrap();
+            if commands.contains_key(command_name) {
+                let command = commands.get(command_name);
+                if command.is_some() {
+                    let script = command.unwrap().command.clone();
+                    println!("Running Command script: {}", &script);
+
+                    // println!("Current Environment Variables:");
+                    // for (key, value) in std::env::vars() {
+                    //     println!("{}: {}", key, value);
+                    // }
+
+
+                    let mut command = std::process::Command::new(&script);
+                    command.env("NODURO", "PINKMAN");
+                    command.command_load_env(&self, command_name, root_path);
+                    if current_dir.is_some(){
+                        command.current_dir(current_dir.unwrap());
+                    }
+
+                    let evn = command.get_envs();
+                    // dbg!(&evn);
+
+                    command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+
+
+
+                    // command.env("HOUDINI_USER_PREF_DIR", "C:\\Users\\Deepak\\Documents\\houdini20.5");
+                    // command.args(&["/C", "start", "cmd", "/K", &script]);
+                    // command.args(&[&script]);
+                    command.stdout(std::process::Stdio::null());
+                    command.stderr(std::process::Stdio::null());
+                    command.stdin(std::process::Stdio::null());
+
+                    let _child = command.spawn();
+
+                }
+            }
+        }
+        Ok(())
+    }
 
     pub fn clone_package(git_url: &str, package_path: &PathBuf) -> Result<Package, anyhow::Error> {
         // clone with progress
@@ -410,7 +480,7 @@ impl Package {
     pub fn publish(package_name: String, message: String) -> Result<(), anyhow::Error> {
         println!("PUBLISHING PACKAGE: {:?}", &package_name);
         match Registry::init(){
-            Ok(mut registry) => {
+            Ok(registry) => {
                 let package_registry = registry.get_package(&package_name);
                 if package_registry.is_some(){
                     let package_registry = package_registry.unwrap();
@@ -433,6 +503,83 @@ impl Package {
         }
     }
 
+}
+
+
+pub trait VatCommandEnv{
+    fn add_env(&mut self, package: &Package, command_name: &str, root_path: &PathBuf);
+    fn command_load_env(&mut self, package: &Package, command_name: &str, root_path: &PathBuf);
+}
+
+impl VatCommandEnv for std::process::Command{
+    fn add_env(&mut self, package: &Package, command_name: &str, root_path: &PathBuf) {
+        if package.environment.is_some(){
+            let env = package.environment.as_ref().unwrap();
+            if env.contains_key(command_name){
+                let env = env.get(command_name).unwrap();
+                dbg!(&env);
+
+                let new_env_value = env.value.clone().replace("{root}", &root_path.to_str().unwrap());
+
+                if env.action.is_some() {
+                    
+                    if env.variable == "PATH"{
+                        let path = PathBuf::from(new_env_value.clone());
+                        if !path.exists() {
+                            return;
+                        }
+                    }
+
+                    match env.action.as_ref().unwrap(){
+                        EnvAction::Prepend => {
+                            println!("Prepending environment variable: {}", &env.variable);
+                            self.env(env.variable.clone(), format!("{};{}", new_env_value, std::env::var(env.variable.clone()).unwrap_or_default()));
+                        }
+
+                        EnvAction::Append => {
+                            println!("Appending environment variable: {}", &env.variable);
+                            self.env(env.variable.clone(), format!("{};{}", std::env::var(env.variable.clone()).unwrap_or_default(), new_env_value));
+                        }
+
+                        EnvAction::Define => {
+                            println!("Defining environment variable: {}", &env.variable);
+                            self.env(env.variable.clone(), new_env_value);
+                        }
+                    }
+                }
+            }
+        }
+
+        
+    }
+
+    fn command_load_env(&mut self, package: &Package, command_name: &str, root_path: &PathBuf) {
+        if package.command.is_some(){
+            let commands = package.command.as_ref().unwrap();
+            if commands.contains_key(command_name){
+                let command = commands.get(command_name);
+                if let Some(command) = command{
+                    if command.env.is_some(){
+                        for env in command.env.as_ref().unwrap(){
+                            println!("Loading environment variable: {}", &env);
+                            self.add_env(package, env, root_path);
+                        }
+                    }else{
+                        if package.environment.is_some(){
+                            let env = package.environment.as_ref().unwrap();
+                            for (key, value) in env {
+                                self.add_env(package, key, root_path);
+                            }
+                        }
+
+                    }
+
+                }
+            }
+        }
+    }
+
+    
 }
 
 
