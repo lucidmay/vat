@@ -4,7 +4,7 @@ use crate::config::VatConfig;
 use serde::{Serialize, Deserialize};
 use color_print::cprintln;
 use std::collections::HashMap;
-use crate::package::{self, Package, PackageVersions};
+use crate::package::{Package, PackageVersions};
 use std::io::Write;
 use fs_extra::dir::CopyOptions;
 use zip::read::ZipArchive;
@@ -12,7 +12,9 @@ use std::fs::File;
 use std::io;
 use colored::*;
 use semver::Version;
-
+use crate::stack::Stack;
+use crate::registry::Registry;
+use crate::stack::ExecuteFrom;
 
 #[cfg(target_os = "windows")]
 const DETACHED_PROCESS: u32 = 0x00000008;
@@ -335,13 +337,22 @@ impl VatRepository2{
 
     // this is to use on tauri app
     // TODO: just testing for now
-    pub fn run_command(command: &str, current_dir: Option<PathBuf>) -> Result<(), anyhow::Error>{
+    pub fn run_command(stack: &Stack, current_dir: Option<PathBuf>) -> Result<(), anyhow::Error>{
 
         let vat_repository = VatRepository2::read_repository()?;
 
-        let package_name = command.split_once(" ").unwrap().0;
-        let command_name = command.split_once(" ").unwrap().1;
-        dbg!(&package_name);
+        match stack.execute_from{
+            ExecuteFrom::Registry => {
+                let registry = Registry::init()?;
+                let package = registry.read_package(&stack.package_name)?;
+            }
+            ExecuteFrom::Repository => {
+
+            }
+        }
+
+        let package_name = &stack.package_name;
+        let command_name = &stack.cmd;
         let package = vat_repository.resolve_package_version_option(package_name);
         dbg!(&package);
         if let Some(package) = package{

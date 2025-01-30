@@ -20,6 +20,7 @@ const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
 
 const VAT_TOML: &str = "vat.toml";
 
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct PackageVersions{
     pub publishes: HashMap<semver::Version, Package>,

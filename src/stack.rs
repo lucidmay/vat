@@ -46,6 +46,18 @@ impl Stacks{
 
 #[derive(Serialize, Deserialize)]
 pub struct Stack{
+    pub execute_from: ExecuteFrom,
+    pub package_name: String,
     pub cmd: String,
-    pub icon: Option<String>
+    pub packages: Vec<String>,
+    pub icon: Option<String>,
+    pub icon_id: Option<String>
 }
+
+
+#[derive(Serialize, Deserialize)]
+pub enum ExecuteFrom{
+    Repository,
+    Registry
+}
+
