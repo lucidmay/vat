@@ -29,22 +29,72 @@ impl Registry{
         let registry_path = Self::registry_path();
         if !registry_path.exists(){
             let registry = Registry::default();
-            let registry_str = serde_json::to_string(&registry).unwrap();
-            fs::write(&registry_path, registry_str).unwrap();
-            return Ok(registry);
+            let registry_str = serde_json::to_string(&registry);
+            match registry_str{
+                Ok(registry_str) => {
+                    dbg!(&registry_str);
+                    dbg!(&registry_path);
+                    fs::write(&registry_path, registry_str).unwrap();
+                    return Ok(registry);
+                }
+                Err(e) => {
+                    return Err(anyhow::anyhow!("Failed to write registry: {}", e));
+                }
+            }
         }
 
         let registry_str = fs::read_to_string(&registry_path).unwrap();
-        let registry: Registry = serde_json::from_str(&registry_str).unwrap();
+        let mut registry: Registry = serde_json::from_str(&registry_str).unwrap();
+        let mut sorted_registry = HashMap::new();
+        let mut sorted_keys = registry.registry.keys().collect::<Vec<&String>>();
+        sorted_keys.sort();
+        for key in sorted_keys {
+            sorted_registry.insert(key.clone(), registry.registry[key].clone());
+        }
+        registry.registry = sorted_registry;
         Ok(registry)
+
+    }
+
+
+    // this will also save the package in the defualt pacakge directory
+    pub fn append_default_package(&mut self, package: Package) -> Result<(), anyhow::Error>{
+
+        let package_info = package.package_info.clone();    
+
+        let package_registry = PackageRegistry{
+            path: Self::default_package_path().join(package_info.name.clone()),
+            description: package_info.description.unwrap(),
+            repository: package_info.repository.clone(),
+        };
+
+        // save teh package 
+        dbg!(&package_registry.path);
+        if !package_registry.path.exists(){
+            fs::create_dir_all(&package_registry.path)?;
+            let result = &package.save(&package_registry.path)?;
+            dbg!(&result);
+        }
+
+        self.registry.insert(package.package_info.name, package_registry);
+        self.save()?;
+        Ok(())
     }
 
     pub fn registry_path() -> PathBuf{
         let app_dir = VatConfig::get_app_dir().unwrap();
+        if !app_dir.exists(){
+            fs::create_dir_all(&app_dir).unwrap();
+        }
         let registry_path = app_dir.join("registry.toml");
         registry_path
     }
 
+    pub fn default_package_path() -> PathBuf{
+        let app_dir = VatConfig::get_app_dir().unwrap();
+        let default_package_path = app_dir.join("packages");
+        default_package_path
+    }
 
     pub fn add_package(&mut self, package: Package, path: PathBuf) -> Result<(), anyhow::Error>{
         if self.registry.contains_key(&package.package_info.name){

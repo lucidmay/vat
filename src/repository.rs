@@ -16,12 +16,6 @@ use crate::stack::Stack;
 use crate::registry::Registry;
 use crate::stack::ExecuteFrom;
 
-#[cfg(target_os = "windows")]
-const DETACHED_PROCESS: u32 = 0x00000008;
-#[cfg(target_os = "windows")]
-const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
-use std::os::windows::process::CommandExt;
-
 
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -94,6 +88,7 @@ impl VatRepository2{
         }
         Ok(VatRepository2::default())
     }
+        
 
     pub fn add_package(&mut self, package: Package, message: Option<String>, current_dir: PathBuf) -> Result<(), anyhow::Error>{
         if self.packages.contains_key(&package.get_name().to_string()){
@@ -332,6 +327,7 @@ impl VatRepository2{
         dbg!(&self.path);
         fs::write(&self.path.join("vat.repository.toml"), &repository_config_str)?;
         Ok(())
+
     }
 
 
@@ -376,9 +372,7 @@ impl VatRepository2{
 
     }
 
-
 }
-
 
 
 
@@ -393,141 +387,6 @@ impl PublishedVersions{
     pub fn from(package: Package, message: String, package_path: PathBuf, repository: Option<PathBuf>) -> Self{
         let version  = HashMap::from([(package.get_version().clone(), message)]);
         PublishedVersions{versions: version, package_path, repository}
-    }
-}
-
-
-#[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct VatRepository {
-    pub packages: HashMap<String, PackageVersions>
-}
-
-impl Default for VatRepository {
-    fn default() -> Self {
-        VatRepository { packages: HashMap::new() }
-    }
-}
-
-impl VatRepository {
-    pub fn new() -> Self{
-        VatRepository::default()
-    }
-
-    pub fn init() -> Result<Self, anyhow::Error> {
-        let mut config = VatConfig::init()?;
-        let repository_path = config.get_repository_path();
-        if repository_path.is_none(){
-            let current_dir = std::env::current_dir()?;
-            let repository_config_file = current_dir.join("vat.repository.toml");
-            if !current_dir.is_empty(){
-                if repository_config_file.exists(){
-                    return Err(anyhow::anyhow!("Repository already exists, {}", repository_path.unwrap().display()));
-                }else{
-                    return Err(anyhow::anyhow!("Current directory is not empty to initialize the repository"));
-                }
-            }else{
-                let repository_config = VatRepository::default();
-                let repository_config_str = toml::to_string(&repository_config)?;
-                fs::write(repository_config_file, repository_config_str)?;
-                config.set_repository_path(current_dir.clone());
-                config.save()?;
-                cprintln!("      <green>Repository initialized</green>");
-            }
-        }else{
-            let repository_path = config.get_repository_path().unwrap();
-            let repository_config_file = repository_path.join("vat.repository.toml");
-            if repository_config_file.exists(){
-                return Err(anyhow::anyhow!("Repository config file already exists, {}", repository_config_file.display()));
-            }else{
-                let repository_config = VatRepository::default();
-                let repository_config_str = toml::to_string(&repository_config)?;
-                fs::write(repository_config_file, repository_config_str)?;
-                config.set_repository_path(repository_path.clone());
-                config.save()?;
-                cprintln!("      <green>Repository initialized</green>");
-            }
-        }
-    
-        Ok(VatRepository::default())
-    }
-
-  
-
-    pub fn read_repository() -> Result<Self, anyhow::Error> {
-        let vat_config = VatConfig::init()?;
-        let repository_path = vat_config.get_repository_path();
-        let repository_path = if let Some(repository_path) = repository_path {
-            repository_path
-        } else {
-            return Err(anyhow::anyhow!("Repository path not found, Run vat repo-init to initialize the repository"));
-        };
-        let repository_config_file = repository_path.join("vat.repository.toml");
-        let repository_config_str = fs::read_to_string(repository_config_file)?;
-        let repository_config: VatRepository = toml::from_str(&repository_config_str)?;
-        Ok(repository_config)
-    }
-
-    pub fn add_package(&mut self, package: Package) -> Result<Package, anyhow::Error> {
-        if self.packages.contains_key(&package.get_name().to_string()){
-            let package_versions = self.packages.get_mut(&package.get_name().to_string()).unwrap();
-            if package_versions.publishes.contains_key(&package.get_version()){
-                return Err(anyhow::anyhow!("Package version has already been published, {}", package.get_version()));
-            }
-            package_versions.append_version(package.clone());
-            self.save()?;
-            Ok(package)
-        }else{
-            let package_name = package.get_name().to_string();
-            let package_versions = PackageVersions::from(package.clone());
-            self.packages.insert(package_name, package_versions);
-            self.save()?;
-            Ok(package)
-        }
-
-    }
-
-    pub fn get_package(&self, package_name: &str) -> Option<&PackageVersions> {
-        if self.packages.contains_key(package_name) {
-            self.packages.get(package_name)
-        }else{
-            None
-        }
-    }
-
-    pub fn remove_package(&mut self, package_name: &str) -> Result<(), anyhow::Error> {
-        if self.packages.contains_key(package_name) {
-            self.packages.remove(package_name);
-            self.save()?;
-            Ok(())
-        }else{
-            Err(anyhow::anyhow!("Package not found: {}", package_name))
-        }
-    }
-
-    pub fn get_latest_package_version(&self, package_name: &str) -> Option<&Package> {
-        let package_versions = self.packages.get(package_name)?;
-        let latest_version = package_versions.get_latest_version();
-        latest_version
-    }
-
-    
-
- 
-
-
-
-    pub fn save(&self) -> Result<(), anyhow::Error> {
-        let vat_config = VatConfig::init()?;
-        let repository_path = vat_config.get_repository_path();
-        let repository_path = if let Some(repository_path) = repository_path {
-            repository_path
-        } else {
-            return Err(anyhow::anyhow!("Repository path not found, Run vat repo-init to initialize the repository"));
-        };
-        let toml_string = toml::to_string(self)?;
-        let mut toml_file = std::fs::File::create(repository_path.join("vat.repository.toml"))?;
-        toml_file.write_all(toml_string.as_bytes())?;
-        Ok(())
     }
 }
 

@@ -1,5 +1,6 @@
 [package]
 name = "vat"
+description = "A lightweight package manager"
 version.workspace = true
 edition.workspace = true
 
@@ -18,7 +19,7 @@ anyhow = {workspace = true}
 thiserror = {workspace = true}
 
 ## cli
-clap = {workspace = true, features = ["derive"]}
+clap = {workspace = true, features = ["derive", "color", "env", "std"]}
 colored = {workspace = true}
 color-print = {workspace = true}
 ansi_term = {workspace = true}
@@ -35,3 +36,7 @@ zip = {workspace = true}
 semver = {workspace = true}
 
 windows-sys = { version = "0.48", features = ["Win32_Foundation", "Win32_System_Threading"] }
+
+## sys info
+installed_pkg = {workspace = true}
+regex = {workspace = true}

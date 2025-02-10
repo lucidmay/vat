@@ -8,20 +8,13 @@ use colored::*;
 use crate::git::Git;
 use crate::registry::Registry;
 use crate::git::GitTags;
-use crate::repository::VatRepository2 as VatRepository;
-
-#[cfg(target_os = "windows")]
-use std::os::windows::process::CommandExt;
-
-#[cfg(target_os = "windows")]
-const DETACHED_PROCESS: u32 = 0x00000008;
-#[cfg(target_os = "windows")]
-const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+use crate::config::VatConfig;
+use crate::vat_repository::VatRepo;
 
 const VAT_TOML: &str = "vat.toml";
 
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
+
 pub struct PackageVersions{
     pub publishes: HashMap<semver::Version, Package>,
     pub default: semver::Version,
@@ -69,11 +62,17 @@ pub struct Package{
 
 impl Default for Package {
     fn default() -> Self {
-        Self { package_info: PackageInfo::from("".to_string()), dependencies: None, command: None, environment: None, examples: None }
+        Self { package_info: PackageInfo::from("".to_string()), dependencies: None, command: Some(HashMap::new()), environment: Some(HashMap::new()), examples: None }
     }
 }
 
 impl Package {  
+
+    pub fn from_package_info(package_info: PackageInfo) -> Self{
+        Self { package_info, dependencies: None, command: None, environment: None, examples: None }
+    }
+
+
     pub fn default(
         name: String,   
     ) -> Self 
@@ -94,6 +93,26 @@ impl Package {
 
     pub fn get_name(&self) -> &str {
         &self.package_info.name
+    }
+
+    pub fn append_env(&mut self, env_name: &str, env: Environtment) {
+        if self.environment.is_some() {
+            self.environment.as_mut().unwrap().insert(env_name.to_string(), env);
+        }else{
+            let mut environemts = HashMap::new();
+            environemts.insert(env_name.to_string(), env);
+            self.environment = Some(environemts);
+        }
+    }
+
+    pub fn append_command(&mut self, command_name: &str, command: Command) {
+        if self.command.is_some() {
+            self.command.as_mut().unwrap().insert(command_name.to_string(), command);
+        }else{
+            let mut commands = HashMap::new();
+            commands.insert(command_name.to_string(), command);
+            self.command = Some(commands);
+        }
     }
 
     pub fn get_version(&self) -> &semver::Version {
@@ -128,12 +147,11 @@ impl Package {
             std::fs::create_dir_all(&directory)?;
         }
 
-        cprintln!("      <green>Creating</green> vat package, `{}`", &folder_name);
 
 
         let vat_yaml_path = directory.join(VAT_TOML);
         if vat_yaml_path.exists() {
-            return Err(anyhow::anyhow!("{} already exists, looks like you already initialized the package", VAT_TOML));
+            return Err(anyhow::anyhow!("{} already exists" , VAT_TOML));
         }
 
         // create yaml file
@@ -152,6 +170,8 @@ impl Package {
                 Err(e) => panic!("failed to init: {}", e),
             };
         }
+
+        cprintln!("      <green>Created</green> vat package, `{}`", &folder_name);
 
         Ok(Self::default(folder_name.to_string()))
 
@@ -173,7 +193,6 @@ impl Package {
         let package: Package = toml::from_str(&toml_string)?;
         Ok(package)
     }
-
 
 
     pub fn save(&self, package_path: &PathBuf) -> Result<Self, anyhow::Error> {
@@ -223,144 +242,6 @@ impl Package {
         self.package_info.version_message = Some(message);
     }
 
-    pub fn load_all_environments(&self, root_path: &PathBuf) -> Result<(), anyhow::Error> {
-        if self.environment.is_some() {
-            let env = self.environment.as_ref().unwrap();
-            for (key, value) in env {
-                self.load_environments(key, root_path)?;
-            }
-        }
-        Ok(())
-    }
-
-
-    pub fn load_environments(&self, env_name: &str, root_path: &PathBuf) -> Result<(), anyhow::Error> {
-        if self.environment.is_some() {
-            let env = self.environment.as_ref().unwrap();
-            if env.contains_key(env_name) {
-                let env = env.get(env_name).unwrap();
-
-                let new_env_value = env.value.clone().replace("{root}", &root_path.to_str().unwrap());
-
-                if env.action.is_some() {
-
-                    if env.variable == "PATH"{
-                        let path = PathBuf::from(new_env_value.clone());
-                        if !path.exists() {
-                            return Err(anyhow::anyhow!("The path is not valid: {}", new_env_value));
-                        }
-                    }
-
-                    match env.action.as_ref().unwrap() {
-                        EnvAction::Prepend => {
-                            let current_value = std::env::var(env.variable.clone());
-                            match current_value {   
-                                Ok(value) => {
-                                    std::env::set_var(env.variable.clone(), format!("{};{}", new_env_value, value));
-                                }
-                                Err(_) => {
-                                    std::env::set_var(env.variable.clone(), new_env_value);
-                                }
-                            }
-                        }
-
-                        EnvAction::Append => {
-                            let current_value = std::env::var(env.variable.clone());
-                            match current_value {
-                                Ok(value) => {
-                                    std::env::set_var(env.variable.clone(), format!("{};{}", value, new_env_value));
-                                }
-                                Err(_) => {
-                                    std::env::set_var(env.variable.clone(), new_env_value);
-                                }
-                            }
-                        }
-
-                        EnvAction::Define => {
-                            std::env::set_var(env.variable.clone(), new_env_value);
-                        }
-                    }
-
-                    println!("{}: {}", env.variable, std::env::var(env.variable.clone()).unwrap_or_default());
-                }
-                Ok(())
-            } else {
-                Err(anyhow::anyhow!("Environment action is not defined"))
-            }
-        } else {
-            Err(anyhow::anyhow!("No environments found in the package"))
-        }
-    }
-
-
-    pub fn command_load_env(&self, command_name: &str, root_path: &PathBuf) -> Result<(), anyhow::Error> {
-        if self.command.is_some() {
-            let commands = self.command.as_ref().unwrap();
-            if commands.contains_key(command_name) {
-                let command = commands.get(command_name);
-                if let Some(command) = command {
-                    if command.env.is_some() {
-                        for env in command.env.as_ref().unwrap() {
-                            println!("Loading environment variable: {} \n", &env);
-                            self.load_environments(env, root_path)?;
-                        }
-                    }else{
-                        // load all environemts
-                        if self.environment.is_some() {
-                            let env = self.environment.as_ref().unwrap();
-                            for (key, value) in env {
-                                println!("Loading environment: {} \n", &key);
-                                self.load_environments(key, root_path)?;
-                            }
-                        }
-                    }
-                }else{
-                    cprintln!("{}", format!("Command not found: {}", command_name).red());
-                }
-            }else{
-                cprintln!("{}", format!("Command not found: {}", command_name).red());
-            }
-        }
-        Ok(())
-    }
-
-
-    pub fn run_only_command(&self, command_name: &str) -> Result<(), anyhow::Error> {
-        
-        if self.command.is_some() {
-            let commands = self.command.as_ref().unwrap();
-            if commands.contains_key(command_name) {
-                let command = commands.get(command_name);
-                if command.is_some() {
-                    let script = command.unwrap().command.clone();
-                    println!("Running script: {}", &script);
-                    // let mut status = std::process::Command::new(&script).spawn().expect("Filed to run command");
-
-                    println!("Current Environment Variables:");
-                    // for (key, value) in std::env::vars() {
-                    //     println!("{}: {}", key, value);
-                    // }
-
-
-                    let mut command = std::process::Command::new(&script);
-                    command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
-
-
-
-                    // command.env("HOUDINI_USER_PREF_DIR", "C:\\Users\\Deepak\\Documents\\houdini20.5");
-                    // command.args(&["/C", "start", "cmd", "/K", &script]);
-                    // command.args(&[&script]);
-                    command.stdout(std::process::Stdio::null());
-                    command.stderr(std::process::Stdio::null());
-                    command.stdin(std::process::Stdio::null());
-
-                    let _child = command.spawn();
-
-                }
-            }
-        }
-        Ok(())
-    }
 
     pub fn run_command(&self, command_name: &str, root_path: &PathBuf, current_dir: Option<PathBuf>) -> Result<(), anyhow::Error> {
         
@@ -388,7 +269,6 @@ impl Package {
                     let evn = command.get_envs();
                     // dbg!(&evn);
 
-                    command.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
 
 
 
@@ -441,7 +321,7 @@ impl Package {
         if Self::is_vat_package(package_path) {
             let package = Package::read(package_path);
             match package {
-                Ok(package) => {
+                Ok(_) => {
                     let repo = GitRepository::open(package_path);
                     match repo {
                         Ok(repo) => {
@@ -454,7 +334,7 @@ impl Package {
                         Err(_) => None
                     }
                 }
-                Err(e) => {
+                Err(_) => {
                     return None;
                 }
             }
@@ -463,10 +343,7 @@ impl Package {
         }
     }
 
-    pub fn get_package_latest_tag(package_path: &PathBuf) -> Option<String> {
-        let tags = Self::get_package_git_tags(package_path);
-        if tags.is_some(){
-            let git_tags = GitTags::new(tags.unwrap());
+    pub fn get_package_latest_tag(package_path: &PathBuf) -> Option<String> { let tags = Self::get_package_git_tags(package_path); if tags.is_some(){ let git_tags = GitTags::new(tags.unwrap());
             if !git_tags.tags.is_empty(){
                 let latest_tag = git_tags.get_latest();
                 if latest_tag.is_some(){
@@ -478,33 +355,103 @@ impl Package {
     }
 
 
-    pub fn publish(package_name: String, message: String) -> Result<(), anyhow::Error> {
-        println!("PUBLISHING PACKAGE: {:?}", &package_name);
-        match Registry::init(){
-            Ok(registry) => {
-                let package_registry = registry.get_package(&package_name);
-                if package_registry.is_some(){
-                    let package_registry = package_registry.unwrap();
-                    let package_path = package_registry.path.clone();
-                    let package = Package::read(&package_path).unwrap();
-                    let repository = VatRepository::read_repository();
-                    match repository{
-                        Ok(mut repository) => {
-                            let result = repository.add_package(package.clone(), Some(message), package_path.clone());
-                            dbg!(repository);
-                            // repository.save();
-                            Ok(())
-                        }
-                        Err(e) => Err(e)
-                    };
+    pub fn resolve_package(package_name: Option<String>, check_current_dir: bool) -> Result<PackageResolver, anyhow::Error>{
+        if package_name.is_some(){
+            let package_resolver = PackageResolver::parse_package_string(&package_name.unwrap());
+            dbg!(&package_resolver);
+
+
+            let vat_repo = VatRepo::init()?;
+            let package = vat_repo.get_package(&package_resolver.unwrap());
+
+            match package {
+                Ok(package_resolver) => {
+                    return Ok(package_resolver);
                 }
-                Ok(())
+                Err(e) => {
+                    return Err(e);
+                }
             }
-            Err(e) => Err(e)
+        }else{
+            if check_current_dir {
+                let current_dir = std::env::current_dir();
+                if current_dir.is_ok() {
+                    let current_dir = current_dir.unwrap();
+                    let package = Package::read(&current_dir);
+                    match package {
+                        Ok(package) => {
+
+                            let mut package_resolver = PackageResolver::new(
+                                package.package_info.name,
+                                PackageFrom::Main
+                            );
+
+
+                            package_resolver.package_path = Some(current_dir);
+
+                            return Ok(package_resolver);
+                        }
+                        Err(e) => {
+                            return Err(e);
+                        }
+                    }
+                }
+            }else{
+                return Err(anyhow::anyhow!("Either package name should be provided or the current directory should be a vat package"));
+            }
         }
+
+        Err(anyhow::anyhow!("Failed to resolve package"))
     }
 
+
+
+    pub fn run(command: &str, package:Option<String>, append: Option<Vec<String>>) -> Result<(), anyhow::Error>{
+        println!("Run");
+
+        let package = match package {
+            Some(package) => {
+                Package::resolve_package(Some(package), true)
+            }
+            None => {
+                Package::resolve_package(None, true)
+            }
+        };
+
+
+        dbg!(&package);
+
+        let mut append_packages: Vec<PackageResolver> = vec![];
+
+
+        if append.is_some(){
+            for append_package in append.unwrap() {
+                let package_resolver = Package::resolve_package(Some(append_package), true);
+
+            match package_resolver {
+                Ok(package_resolver) => {
+                    append_packages.push(package_resolver);
+                }
+                Err(e) => {
+                    eprintln!("{}", format!("Failed to resolve package: {}", e).red());
+                    }
+                }
+            }
+        }
+
+
+
+        dbg!(&command);
+
+
+        dbg!(&append_packages);
+
+        Ok(())
+    }
+
+
 }
+
 
 
 pub trait VatCommandEnv{
@@ -514,70 +461,10 @@ pub trait VatCommandEnv{
 
 impl VatCommandEnv for std::process::Command{
     fn add_env(&mut self, package: &Package, command_name: &str, root_path: &PathBuf) {
-        if package.environment.is_some(){
-            let env = package.environment.as_ref().unwrap();
-            if env.contains_key(command_name){
-                let env = env.get(command_name).unwrap();
-                dbg!(&env);
-
-                let new_env_value = env.value.clone().replace("{root}", &root_path.to_str().unwrap());
-
-                if env.action.is_some() {
-                    
-                    if env.variable == "PATH"{
-                        let path = PathBuf::from(new_env_value.clone());
-                        if !path.exists() {
-                            return;
-                        }
-                    }
-
-                    match env.action.as_ref().unwrap(){
-                        EnvAction::Prepend => {
-                            println!("Prepending environment variable: {}", &env.variable);
-                            self.env(env.variable.clone(), format!("{};{}", new_env_value, std::env::var(env.variable.clone()).unwrap_or_default()));
-                        }
-
-                        EnvAction::Append => {
-                            println!("Appending environment variable: {}", &env.variable);
-                            self.env(env.variable.clone(), format!("{};{}", std::env::var(env.variable.clone()).unwrap_or_default(), new_env_value));
-                        }
-
-                        EnvAction::Define => {
-                            println!("Defining environment variable: {}", &env.variable);
-                            self.env(env.variable.clone(), new_env_value);
-                        }
-                    }
-                }
-            }
-        }
-
         
     }
 
     fn command_load_env(&mut self, package: &Package, command_name: &str, root_path: &PathBuf) {
-        if package.command.is_some(){
-            let commands = package.command.as_ref().unwrap();
-            if commands.contains_key(command_name){
-                let command = commands.get(command_name);
-                if let Some(command) = command{
-                    if command.env.is_some(){
-                        for env in command.env.as_ref().unwrap(){
-                            println!("Loading environment variable: {}", &env);
-                            self.add_env(package, env, root_path);
-                        }
-                    }else{
-                        if package.environment.is_some(){
-                            let env = package.environment.as_ref().unwrap();
-                            for (key, value) in env {
-                                self.add_env(package, key, root_path);
-                            }
-                        }
-
-                    }
-
-                }
-            }
-        }
     }
 
     
@@ -608,7 +495,7 @@ pub struct PackageInfo {
 impl PackageInfo{
     pub fn from(name: String) -> Self {
         Self { name,
-             version: semver::Version::new(0, 0, 1),
+             version: semver::Version::new(0, 1, 0),
             version_message: None,
             description: None, 
             authors: vec![],
@@ -641,6 +528,11 @@ pub struct Command {
     pub env: Option<Vec<String>>
 }
 
+impl Command{
+    pub fn from(command: String, env: Option<Vec<String>>) -> Self {
+        Self { command, env }
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Environtment {
@@ -652,6 +544,10 @@ pub struct Environtment {
 impl Environtment {
     pub fn new() -> Self {
         Self { variable: "PATH".to_string(), value: "{root}/bin".to_string(), action: Some(EnvAction::Define) }
+    }
+
+    pub fn from(variable: String, value: String, action: Option<EnvAction>) -> Self {
+        Self { variable, value, action }
     }
 }
 
@@ -675,17 +571,85 @@ impl Default for Dependencies {
     }
 }
 
-trait Path {
-    fn is_empty(&self) -> bool;
+
+
+
+#[derive(Debug, Clone)]
+pub struct PackageResolver{
+    pub package_name: String,
+    pub from: PackageFrom,
+    pub package_path: Option<PathBuf>,
+    pub package: Option<Package>,
+    pub env: Option<Vec<String>>,
 }
 
-impl Path for PathBuf {
-    fn is_empty(&self) -> bool {
-        let files = std::fs::read_dir(self).unwrap();
-        if files.count() == 0 {
-            return true;
-        }
-        false
+
+impl PackageResolver{
+
+    pub fn new(package_name: String, from: PackageFrom) -> Self{
+        Self { package_name, from, package_path: None, package: None, env: None }
     }
+
+
+    pub fn parse_package_string(package_string: &str) -> Option<Self>{
+
+
+        let mut package_resolver = PackageResolver{
+            package_name: String::new(),
+            from: PackageFrom::Main,
+            package_path: None,
+            package: None,
+            env: None,
+
+        };
+
+        let (package_str, env_vars) = if let (Some(start), Some(end)) = (package_string.find('['), package_string.find(']')) {
+            if start < end {  // Ensure valid bracket order
+                let env_str = &package_string[start + 1..end];
+                let package_part = &package_string[..start];
+                (package_part.to_string(), Some(env_str.split(',').map(|s| s.trim().to_string()).collect::<Vec<String>>()))
+            } else {
+                (package_string.to_string(), None)
+            }
+        } else {
+            (package_string.to_string(), None)
+        };
+
+        dbg!(&package_str);
+        dbg!(&env_vars);
+
+
+        let pattern = regex::Regex::new(r"^([a-zA-Z0-9-_]+)(?:/([a-zA-Z0-9.-]+))?$").unwrap();
+
+        pattern.captures(&package_str).map(|caps| {
+            package_resolver.package_name = caps.get(1).unwrap().as_str().to_string();
+            package_resolver.from = caps.get(2)
+                .map_or(PackageFrom::Latest, |m| match m.as_str() {
+
+                    "latest" => PackageFrom::Latest,
+
+                    s => match semver::Version::parse(s) {
+                        Ok(version) => PackageFrom::Version(version),
+                        Err(_) => PackageFrom::Main
+                    }
+                });
+            package_resolver.env = env_vars;
+            package_resolver
+        })
+
+
+    }
+    
 }
+
+
+
+#[derive(Debug, Clone)]
+pub enum PackageFrom{
+    Latest,
+    Version(semver::Version),
+    Main,
+}
+
+
 
