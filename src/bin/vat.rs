@@ -54,6 +54,7 @@ enum Commands {
         #[arg(long="detach", short='d')]
         detach: bool,
     },
+    Repo
     // Test
 
 
@@ -73,6 +74,19 @@ fn main() -> Result<(), anyhow::Error> {
           
         //     Ok(())
         // }
+
+        Some(Commands::Repo) => {
+            let repository = VatRepo::init();
+            match repository{
+                Ok(repository) => {
+                    repository.pretty_list();
+                }
+                Err(e) => {
+                    eprintln!("Error: {}", e);
+                }
+            }
+            Ok(())
+        }
 
 
         // Testing vat Link package to repository

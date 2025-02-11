@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 use serde::{Serialize, Deserialize};
-use crate::repository::VatRepository2;
 use dirs_next::{config_dir, document_dir};
 use std::fs;
 
@@ -30,10 +29,10 @@ impl VatConfig {
         }
 
         // initalize repository
-        let result_repo =   VatRepository2::initalize_repository(&default_repo_path);
-        if result_repo.is_err(){
-            println!("Failed to initalize repository: {:?}", result_repo.err());
-        }
+        // let result_repo =   VatRepository2::initalize_repository(&default_repo_path);
+        // if result_repo.is_err(){
+        //     println!("Failed to initalize repository: {:?}", result_repo.err());
+        // }
 
         VatConfig{
             repository_path: Some(default_repo_path),
@@ -75,20 +74,6 @@ impl VatConfig {
     }
 
     
-    pub fn read_repository(&self) -> Result<VatRepository2, anyhow::Error> {
-        let repository_path = self.get_repository_path();
-        let repository_path = if let Some(repository_path) = repository_path {
-            repository_path
-        } else {
-            return Err(anyhow::anyhow!("Repository path not found, Run vat repo-init to initialize the repository"));
-        };
-        let repository_config_str = fs::read_to_string(repository_path.join("vat.repository.toml"))?;
-        let repository_config: VatRepository2 = toml::from_str(&repository_config_str)?;
-        Ok(repository_config)
-    }
-
-
-
     pub fn get_repository_path(&self) -> Option<PathBuf> {
         self.repository_path.clone()
     }

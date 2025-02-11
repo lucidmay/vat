@@ -6,7 +6,7 @@ use std::collections::HashMap;
 use anyhow::{anyhow, Result};
 use crate::package::Package;
 use crate::package::{PackageResolver, PackageFrom};
-
+use colored::Colorize;
 
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -305,7 +305,7 @@ impl VatRepo{
 
         };
 
-        dbg!(&package_path);
+        // dbg!(&package_path);
         out_package_resolver.package_path = Some(package_path.clone());
         let package = Package::read(&package_path)?;
         out_package_resolver.package = Some(package);
@@ -331,8 +331,26 @@ impl VatRepo{
     }
 
 
+    pub fn pretty_list(&self) {
+        if !self.packages.is_empty() {
+            for (package_name, package_versions) in &self.packages {
+                let message = format!("Package: {}", package_name);
+                println!("{}", message.green());
+                let mut sorted_versions = package_versions.versions.iter()
+                    .collect::<Vec<(&semver::Version, &String)>>();    
 
+                // sort the versions in reverse order
+                sorted_versions.sort_by(|a, b| b.0.cmp(a.0));
+                sorted_versions.reverse();
 
+                for (version, message) in sorted_versions {
+                    println!("   {} - {}", version, message.bright_black());
+                }
+            }
+        } else {
+            println!("{}", format!("No packages found in the repository"));
+        }
+    }
 
 }
 

@@ -151,7 +151,6 @@ pub fn dcc_package_from_apps(apps: Vec<Application>) -> Result<Package, anyhow::
     // }
 
     // let mut dcc_package = dcc_package.unwrap();
-    let mut not_registered = false;
 
     let mut dcc_package = match dcc_package{
         Ok(package) => package,
@@ -177,10 +176,9 @@ pub fn dcc_package_from_apps(apps: Vec<Application>) -> Result<Package, anyhow::
             };
 
             let dcc_package = Package::from_package_info(package_info);
-            not_registered = true;
-
             dcc_package
         }
+
     };
 
 
