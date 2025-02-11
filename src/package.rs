@@ -174,8 +174,6 @@ impl Package {
         // create yaml file
         let toml_string = toml::to_string(&Package::default(folder_name.to_string()))?;
 
-        let mut toml_file = std::fs::File::create(vat_yaml_path)?;
-        toml_file.write_all(toml_string.as_bytes())?;
 
         let git_repo = directory.join(".git");
         if !git_repo.exists() {
@@ -187,6 +185,9 @@ impl Package {
                 Err(e) => panic!("failed to init: {}", e),
             };
         }
+
+        let mut toml_file = std::fs::File::create(vat_yaml_path)?;
+        toml_file.write_all(toml_string.as_bytes())?;
 
         cprintln!("      <green>Created</green> vat package, `{}`", &folder_name);
 
@@ -635,7 +636,7 @@ pub struct PackageInfo {
 impl PackageInfo{
     pub fn from(name: String) -> Self {
         Self { name,
-             version: semver::Version::new(0, 1, 0),
+             version: semver::Version::new(0, 0, 0),
             version_message: None,
             description: None, 
             authors: vec![],

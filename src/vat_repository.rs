@@ -178,6 +178,9 @@ impl VatRepo{
         let zip_file_name = format!("{}.zip", current_version);
         let source_zip_file_path = package_path.join(&zip_file_name);
 
+        let message = format!("Creating zip from the tag: {}", current_version);
+        println!("{}", message.bright_black());
+
         // create zip from git version
         // "git archive --format=zip -o archive.zip 0.0.3"
         let _command = std::process::Command::new("git")
@@ -201,10 +204,16 @@ impl VatRepo{
             fs::create_dir_all(&repo_package_version_path)?;
         }
 
+        let message = format!("Copying zip file to repository");
+        println!("{}", message.bright_black());
+
         let file = std::fs::File::open(&source_zip_file_path)?;
         let mut archive = zip::read::ZipArchive::new(file)?;
 
         archive.extract(repo_package_version_path)?;
+        let message = format!("Version {} successfully extracted to repository", current_version);
+        println!("{}", message.bright_black());
+
         fs::remove_file(&source_zip_file_path)?;
 
         // dbg!(&repo_package);
@@ -212,7 +221,7 @@ impl VatRepo{
         self.save()?;
 
         let messsage = format!("{}: Version {} published", package_name, current_version);
-        println!("{}", messsage);
+        println!("{}", messsage.cyan());
 
         Ok(())
     }

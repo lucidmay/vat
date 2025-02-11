@@ -6,11 +6,13 @@ use git2::Repository as GitRepository;
 use std::io::{self, Write}; 
 use vat::vat_repository::VatRepo;
 
-/// Simple program to demonstrate colored CLI
+const VERSION: &str = env!("CARGO_PKG_VERSION");
+const MESSAGE: &str = "Vat is a lightweight package manager / environment manager";
+
+/// Vat is a tool for managing Vat packages.
 #[derive(Parser)]
-#[command(author, version, about, long_about = None)]
+#[command(author, version = VERSION, about = MESSAGE, long_about = None)]
 struct Cli {
-    /// Optional name to greet
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -36,24 +38,27 @@ enum Commands {
             patch:bool,
         },
 
-    #[command(name = "publish", about = "Publish a Vat package")]
+    #[command(name = "publish", about = "Publish a Vat package to the repository")]
     Publish{
-        #[arg(short = 'm', long)]
+        #[arg(short = 'm', long, help = "The message to publish the package with")]
         message: String,
         // #[arg(short, long)]
         // remote: bool,
     },
+    #[command(name = "link", about = "Link a Vat package to a repository, without publishing")]
     Link,
+    #[command(name = "run", about = "Run a Vat package command")]
     Run{
-        #[arg(required = false)]
+        #[arg(required = false, help = "The command to run")]
         subcommand:Option<String>,
-        #[arg(long="append", short='a', num_args = 1..)]
+        #[arg(long="append", short='a', num_args = 1.., help = "Append packages to the environment")]
         append: Option<Vec<String>>,
-        #[arg(long="package", short='p')]
+        #[arg(long="package", short='p', help = "The package to run the command in")]
         package: Option<String>,
-        #[arg(long="detach", short='d')]
+        #[arg(long="detach", short='d', help = "Run the command in the background")]
         detach: bool,
     },
+    #[command(name = "repo", about = "List all Vat packages in the repository")]
     Repo
     // Test
 
@@ -163,8 +168,11 @@ fn main() -> Result<(), anyhow::Error> {
             let repository = VatRepo::init();
             match repository{
                 Ok(mut repository) => {
+                    let print_message = format!("Publishing package {}, version {} to repository", read_package.get_name(), read_package.get_current_version());
+                    println!("{}", print_message.yellow());
+                    println!("{}", format!("Please wait while we publish the package...").yellow());
                     repository.publish_package(&read_package, &current_dir, &message)?;
-                    println!("Package published successfully to repository");
+                    println!("{}", format!("Package published successfully to repository").green());
                 }
                 Err(e) => {
                     eprintln!("Error initializing repository: {}", e);
@@ -286,7 +294,13 @@ fn main() -> Result<(), anyhow::Error> {
             Ok(())
         }
         None => {
-            println!("No command provided");
+            // println!("No command provided");
+            // run help
+            let _result = Command::new("vat")
+                .arg("--help")
+                .status()
+                .expect("Failed to run vat --help");
+
             return Ok(());
         }
     }
