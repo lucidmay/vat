@@ -51,8 +51,10 @@ enum Commands {
         append: Option<Vec<String>>,
         #[arg(long="package", short='p')]
         package: Option<String>,
+        #[arg(long="detach", short='d')]
+        detach: bool,
     },
-    Test
+    // Test
 
 
 
@@ -63,14 +65,14 @@ fn main() -> Result<(), anyhow::Error> {
     let cli = Cli::parse();
 
     match cli.command {
-        Some(Commands::Test) => {
-            let current_dir = std::env::current_dir()?;
-            let package = Package::read(&current_dir)?;
+        // Some(Commands::Test) => {
+        //     let current_dir = std::env::current_dir()?;
+        //     let package = Package::read(&current_dir)?;
 
-            dbg!(&package);
+        //     dbg!(&package);
           
-            Ok(())
-        }
+        //     Ok(())
+        // }
 
 
         // Testing vat Link package to repository
@@ -263,16 +265,9 @@ fn main() -> Result<(), anyhow::Error> {
             }
         },
 
-        Some(Commands::Run { subcommand, append, package }) => {
-            let current_dir = std::env::current_dir().unwrap();
+        Some(Commands::Run { subcommand, append, package, detach }) => {
 
-            // let vat_repo = VatRepo::init()?;
-            // let package = Package::resolve_package(package, true);
-
-
-            Package::run(subcommand.unwrap().as_str(), package, append);
-
-
+            let _result = Package::run(subcommand.unwrap().as_str(), package, append, detach)?;
 
             Ok(())
         }

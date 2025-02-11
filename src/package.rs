@@ -135,6 +135,24 @@ impl Package {
         }
     }
 
+    
+    pub fn get_env(&self, env_name: &str) -> Option<&Environtment>{
+        if self.environment.is_some() {
+            let envs = self.environment.as_ref().unwrap();
+            envs.get(env_name)
+        }else{
+            None
+        }
+    }
+
+    pub fn get_cmd(&self, cmd_name: &str) -> Option<&Command>{
+        if self.command.is_some(){
+            let cmds = self.command.as_ref().unwrap();
+            cmds.get(cmd_name)
+        }else{
+            None
+        }
+    }
 
     pub fn init(current_dir: PathBuf, package_name: Option<String>) -> Result<Self, anyhow::Error> {
             
@@ -187,7 +205,7 @@ impl Package {
     pub fn read(package_path: &PathBuf) -> Result<Package, anyhow::Error> {
         let vat_toml_path = package_path.join(VAT_TOML);
         if !vat_toml_path.exists() {
-            return Err(anyhow::anyhow!("{} given path is not a vat package, run `vat init` to initialize as a vat package", package_path.to_str().unwrap_or_default()));
+            return Err(anyhow::anyhow!("{} given path is not a vat package", package_path.to_str().unwrap_or_default()));
         }
         let toml_string = std::fs::read_to_string(vat_toml_path)?;
         let package: Package = toml::from_str(&toml_string)?;
@@ -240,6 +258,65 @@ impl Package {
 
     pub fn set_version_message(&mut self, message: String) {
         self.package_info.version_message = Some(message);
+    }
+
+
+    pub fn process_env(&self, environment_variables: &mut HashMap<String, String>, envs: Option<Vec<String>>) {
+        if envs.is_some(){
+            for env_name in envs.unwrap(){
+                let env = self.get_env(&env_name);
+                if env.is_some(){
+                    let env = env.unwrap();
+                    let existing_env_values = if environment_variables.contains_key(&env.variable){
+                        environment_variables.get(&env.variable).unwrap().clone()
+                    }else{
+                        std::env::var(&env.variable).unwrap_or_default()
+                    };
+                    match env.action{
+                        Some(EnvAction::Prepend) => {
+                            let new_env_value = format!("{};{}", env.value, existing_env_values);
+                            environment_variables.insert(env.variable.clone(), new_env_value);
+                        }
+                        Some(EnvAction::Append) => {
+                            let new_env_value = format!("{};{}", existing_env_values, env.value);
+                            environment_variables.insert(env.variable.clone(), new_env_value);
+                        }
+                        Some(EnvAction::Define) => {
+                            environment_variables.insert(env.variable.clone(), env.value.clone());
+                        }
+                        None => {}  
+                    }
+                }
+            }
+        }else{
+            if self.environment.is_some(){
+                let environmets = self.environment.as_ref().unwrap();
+                for (env_name, env) in environmets {
+                    let existing_env_values = if environment_variables.contains_key(&env_name.to_string()){
+                        environment_variables.get(&env_name.to_string()).unwrap().clone()
+                    }else{
+                        std::env::var(&env_name.to_string()).unwrap_or_default()
+                    };
+
+                    match env.action{
+                        Some(EnvAction::Prepend) => {
+                            let new_env_value = format!("{};{}", env.value, existing_env_values);
+                            environment_variables.insert(env.variable.clone(), new_env_value);
+                        }
+                        Some(EnvAction::Append) => {
+                            let new_env_value = format!("{};{}", existing_env_values, env.value);
+                            environment_variables.insert(env.variable.clone(), new_env_value);
+                        }
+                        Some(EnvAction::Define) => {
+                            environment_variables.insert(env.variable.clone(), env.value.clone());
+                        }
+                        None => {}
+                    }
+
+                }
+            }
+        }
+
     }
 
 
@@ -355,10 +432,12 @@ impl Package {
     }
 
 
+    // package_name is not just package name, it can take package name and version and env
+    // vat run <subcommand> --package <package_name>/<version>[env1,evn2] --append <package_name>/<version>[env1,evn2]
+    // var run <subcommand> will check for current directory for vat.toml file
     pub fn resolve_package(package_name: Option<String>, check_current_dir: bool) -> Result<PackageResolver, anyhow::Error>{
         if package_name.is_some(){
             let package_resolver = PackageResolver::parse_package_string(&package_name.unwrap());
-            dbg!(&package_resolver);
 
 
             let vat_repo = VatRepo::init()?;
@@ -381,14 +460,10 @@ impl Package {
                     match package {
                         Ok(package) => {
 
-                            let mut package_resolver = PackageResolver::new(
-                                package.package_info.name,
-                                PackageFrom::Main
-                            );
-
-
-                            package_resolver.package_path = Some(current_dir);
-
+                            let package_resolver = PackageResolver::from_package(package,
+                                current_dir,
+                                PackageFrom::Main,
+                                None);
                             return Ok(package_resolver);
                         }
                         Err(e) => {
@@ -406,8 +481,7 @@ impl Package {
 
 
 
-    pub fn run(command: &str, package:Option<String>, append: Option<Vec<String>>) -> Result<(), anyhow::Error>{
-        println!("Run");
+    pub fn run(command: &str, package:Option<String>, append: Option<Vec<String>>, detach: bool) -> Result<(), anyhow::Error>{
 
         let package = match package {
             Some(package) => {
@@ -418,12 +492,31 @@ impl Package {
             }
         };
 
+        if package.is_err(){
+            return Err(package.err().unwrap());
+        }
 
-        dbg!(&package);
+        let package_resolver = package.unwrap();
+        if package_resolver.package.is_none(){
+            return Err(anyhow::anyhow!("Failed to resolve the main package {}", package_resolver.package_name));
+        }
+
+        let package = package_resolver.package.unwrap();
+        let mut environment_variables: HashMap<String, String> = HashMap::new();
+        let cmd = package.get_cmd(command);
+        if cmd.is_none(){
+            return Err(anyhow::anyhow!("Command {} not found in package {}", command, package_resolver.package_name));
+        }
+
+        let cmd = cmd.unwrap();
+        if cmd.env.is_some(){
+            package.process_env(&mut environment_variables, cmd.env.clone());
+        }else{
+            package.process_env(&mut environment_variables, None);
+        }
+        
 
         let mut append_packages: Vec<PackageResolver> = vec![];
-
-
         if append.is_some(){
             for append_package in append.unwrap() {
                 let package_resolver = Package::resolve_package(Some(append_package), true);
@@ -440,11 +533,33 @@ impl Package {
         }
 
 
+        // dbg!(&command);
+        // dbg!(&package);
+        // dbg!(&append_packages);
 
-        dbg!(&command);
 
+        // first go through append packages
+        for append_package in append_packages {
+            if append_package.package.is_some(){
+                let package = append_package.package.unwrap();
+                if append_package.env.is_some(){
+                    package.process_env(&mut environment_variables, append_package.env.clone());
+                }else{
+                    package.process_env(&mut environment_variables, None);
+                }
+            }
+        }
 
-        dbg!(&append_packages);
+        // dbg!(&environment_variables);
+
+        // run the command from main package
+        let mut command_std = std::process::Command::new(&cmd.command);
+        command_std.envs(environment_variables);
+        if !detach{
+            command_std.output().unwrap();  
+        }else{
+            let _child = command_std.spawn().unwrap();
+        }
 
         Ok(())
     }
@@ -590,6 +705,9 @@ impl PackageResolver{
         Self { package_name, from, package_path: None, package: None, env: None }
     }
 
+    pub fn from_package(package: Package, package_path: PathBuf, from: PackageFrom, env: Option<Vec<String>>) -> Self{
+        Self { package_name: package.package_info.name.clone(), from, package_path: Some(package_path), package: Some(package), env }
+    }
 
     pub fn parse_package_string(package_string: &str) -> Option<Self>{
 
