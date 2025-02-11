@@ -7,8 +7,7 @@ Vat is a simple lightweight cross-platform tool for managing software packages a
 The package versions are managed using `git tag`.
 
 
-## The Basics
-### Vat Commands
+## Vat Commands
 - `vat init` - Initialize a new Vat package in the current directory.
 - `vat new <package_name>` - Create a new Vat package.
 - `vat up` - Update the package to the latest version.
