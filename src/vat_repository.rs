@@ -4,16 +4,23 @@ use crate::config::VatConfig;
 use serde::{Serialize, Deserialize};
 use std::collections::HashMap;
 use anyhow::{anyhow, Result};
-use crate::package::Package;
+use crate::package::{self, Package};
 use crate::package::{PackageResolver, PackageFrom};
 use colored::Colorize;
-
+use chrono::{DateTime, Utc};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RepoPackage{
-    pub versions: HashMap<semver::Version, String>,
+    pub versions: HashMap<semver::Version, RepoPackageInfo>,
     pub main_branch_path: PathBuf, 
-    pub git_url: Option<String>
+    pub git_url: Option<String>,
+}
+
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct RepoPackageInfo{
+    pub published_on: DateTime<Utc>,
+    pub version_comment: Option<String>
 }
 
 
@@ -22,7 +29,7 @@ impl RepoPackage{
         Self{
             versions: HashMap::new(),
             main_branch_path: package_path.clone(),
-            git_url: Some(package_repository_path.to_string())
+            git_url: Some(package_repository_path.to_string()),
         }
     }
 
@@ -35,7 +42,10 @@ impl RepoPackage{
         if self.version_exists(&version){
             return Err(anyhow!("Version already exists"));
         }
-        self.versions.insert(version.clone(), version_comment.to_string());
+        self.versions.insert(version.clone(), RepoPackageInfo{
+            published_on: Utc::now(),
+            version_comment: Some(version_comment.to_string()),
+        });
         Ok(())
     }
 }
@@ -346,14 +356,14 @@ impl VatRepo{
                 let message = format!("Package: {}", package_name);
                 println!("{}", message.green());
                 let mut sorted_versions = package_versions.versions.iter()
-                    .collect::<Vec<(&semver::Version, &String)>>();    
+                    .collect::<Vec<(&semver::Version, &RepoPackageInfo)>>();    
 
                 // sort the versions in reverse order
                 sorted_versions.sort_by(|a, b| b.0.cmp(a.0));
-                sorted_versions.reverse();
+                // sorted_versions.reverse();
 
-                for (version, message) in sorted_versions {
-                    println!("   {} - {}", version, message.bright_black());
+                for (version, package_info) in sorted_versions {
+                    println!("   {} - {} - {}", version, package_info.version_comment.clone().unwrap_or_default().bright_black(),  package_info.published_on.format("%Y-%m-%d %H:%M:%S").to_string().bright_black());
                 }
             }
         } else {

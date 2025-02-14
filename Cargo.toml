@@ -42,3 +42,6 @@ semver = {version = "1.0.25", features = ["serde"]}
 ## sys info
 installed_pkg = "0.3.5"
 regex = "1.11.1"
+
+# date
+chrono = "0.4.31"

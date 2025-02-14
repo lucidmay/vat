@@ -12,42 +12,6 @@ use crate::vat_repository::VatRepo;
 
 const VAT_TOML: &str = "vat.toml";
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-
-pub struct PackageVersions{
-    pub publishes: HashMap<semver::Version, Package>,
-    pub default: semver::Version,
-
-}
-
-
-impl Default for PackageVersions {
-    fn default() -> Self {
-        PackageVersions { publishes: HashMap::new(), default: semver::Version::new(0, 0, 0) }
-    }
-}
-
-impl PackageVersions {
-    pub fn append_version(&mut self, package: Package) {
-        self.publishes.insert(package.get_version().clone(), package);
-    }
-
-    pub fn from(package: Package) -> Self {
-        let mut package_versions = PackageVersions{
-            publishes: HashMap::new(),
-            default: semver::Version::new(0, 0, 0),
-        };
-        package_versions.append_version(package);
-        package_versions
-    }
-
-    pub fn get_latest_version(&self) -> Option<&Package> {
-        let latest_version = self.publishes.values().max_by(|a, b| a.get_version().cmp(&b.get_version()));
-        latest_version
-    }
-
-
-}
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Package{
