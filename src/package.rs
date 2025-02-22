@@ -8,6 +8,7 @@ use colored::*;
 use crate::git::Git;
 use crate::registry::Registry;
 use crate::git::GitTags;
+use crate::stack::Stack;
 use crate::vat_repository::VatRepo;
 
 const VAT_TOML: &str = "vat.toml";
@@ -239,7 +240,7 @@ impl Package {
             for env_name in envs.unwrap(){
                 let env = self.get_env(&env_name);
                 if env.is_some(){
-                    println!("Resolving Environemnt Variable: {}", env_name.yellow());
+                    println!("Resolving Environment Variable: {}", env_name.yellow());
                     let env = env.unwrap();
                     let existing_env_values = if environment_variables.contains_key(&env.variable){
                         environment_variables.get(&env.variable).unwrap().clone()
@@ -473,6 +474,33 @@ impl Package {
     }
 
 
+    pub fn run_stack(stack: Stack, current_dir: Option<PathBuf>) -> Result<(), anyhow::Error>{
+
+        let package_name = format!("{}/{}", stack.package_name.unwrap(), stack.package_version.unwrap());
+        let mut append_packages: Vec<String> = vec![];
+        for append_package in stack.append{
+            let package_name = format!("{}/{}", append_package.package_name, append_package.package_version);
+            if append_package.env.len() > 0{
+                let mut envs: String = String::new();
+                for env in append_package.env{
+                    envs.push_str(&env);
+                    envs.push(',');
+                }
+                append_packages.push(format!("{}[{}]", package_name, envs));
+            }else{
+                append_packages.push(package_name);
+            }
+        }
+
+        dbg!(&package_name);
+        dbg!(&append_packages);
+
+        Self::run(&stack.command.unwrap(), Some(package_name), Some(append_packages), true)?;
+        
+        Ok(())
+    }
+
+
 
     pub fn run(command: &str, package:Option<String>, append: Option<Vec<String>>, detach: bool) -> Result<(), anyhow::Error>{
 
@@ -563,7 +591,22 @@ impl Package {
             println!("{}", message.yellow());
             let message = format!("Running Command: {}", cmd.command);
             println!("{}", message.green());
-            let _child = command_std.spawn().unwrap();
+            let child = command_std.spawn();
+            match child{
+                Ok(mut child) => {
+                    let _ = child.wait();
+                }
+                Err(e) => {
+                    let message = format!("{}: {}", cmd.command, e.to_string());
+                    return Err(anyhow::anyhow!(message.red()));
+                }
+            }
+            // if child.is_ok(){
+            //     let _ = child.unwrap().wait();
+            // }else{
+            //     let message = format!("Failed to run command: {}", cmd.command);
+            //     return Err(anyhow::anyhow!(message.red()));
+            // }
         }
 
         Ok(())

@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use colored::*;
 use std::process::Command;
 use vat::package::Package;
+use vat::stack::{Stacks, Stack};
 use git2::Repository as GitRepository;
 use std::io::{self, Write}; 
 use vat::vat_repository::VatRepo;
@@ -59,7 +60,12 @@ enum Commands {
         detach: bool,
     },
     #[command(name = "repo", about = "List all Vat packages in the repository")]
-    Repo
+    Repo,
+    #[command(name = "stack", about = "Run a Vat stack")]
+    Stack{
+        #[arg(help = "The stack to run")]
+        stack: String,
+    },
     // Test
 
 
@@ -291,6 +297,16 @@ fn main() -> Result<(), anyhow::Error> {
 
             let _result = Package::run(subcommand.unwrap().as_str(), package, append, detach)?;
 
+            Ok(())
+        }
+        Some(Commands::Stack { stack }) => {
+            let stacks = Stacks::init()?;
+            let stack = stacks.get_stack(stack.as_str());
+            if stack.is_none(){
+                return Err(anyhow::anyhow!("Stack not found"));
+            }
+            let stack = stack.unwrap();
+            let _result = Package::run_stack(stack.clone(), None)?;
             Ok(())
         }
         None => {

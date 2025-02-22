@@ -159,7 +159,7 @@ pub fn dcc_package_from_apps(apps: Vec<Application>) -> Result<Package, anyhow::
             let package_info = PackageInfo{
                 name: "dcc".to_string(),
                 version: semver::Version::new(0, 0, 1),
-                version_message: Some("Initialized on Noduro launch".to_string()),
+                version_message: Some("Initialized on Burnin launch".to_string()),
                 description: Some("Installed DCC applications".to_string()),
                 authors: vec![],
                 repository: None,

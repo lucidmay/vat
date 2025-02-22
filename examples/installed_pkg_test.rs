@@ -1,5 +1,5 @@
 use installed_pkg::list as app_list;
-use vat::noduro;
+use vat::burnin;
 use std::env;
 fn main(){
     // let installed = app_list();
@@ -31,13 +31,13 @@ fn main(){
     // }
 
 
-    let apps = noduro::find_installed_apps();
-    let filtered_apps = noduro::filter_apps(apps);
+    let apps = burnin::find_installed_apps();
+    let filtered_apps = burnin::filter_apps(apps);
     // for app in filtered_apps{
     //     println!("app: {:?}", app);
     // }
 
-    let manual_apps = noduro::manual_checking();
+    let manual_apps = burnin::manual_checking();
     let mut final_apps = Vec::new();
     for app in filtered_apps{
         final_apps.push(app);
@@ -47,6 +47,6 @@ fn main(){
     }
 
 
-    let dcc_package = noduro::dcc_package_from_apps(final_apps);
+    let dcc_package = burnin::dcc_package_from_apps(final_apps);
     dbg!(&dcc_package);
 }
